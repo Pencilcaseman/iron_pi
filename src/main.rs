@@ -1,9 +1,6 @@
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{
-    bsplit::binary_split,
-    fact::{PrimeFactorSieve, PrimeFactors},
-};
+use iron_pi::{bsplit::binary_split_par, fact::PrimeFactorSieve};
 use rug::{Float, Integer};
 use std::io::Write;
 use std::ops::{AddAssign, MulAssign};
@@ -17,6 +14,10 @@ struct Args {
     /// Number of digits to calculate
     #[clap(short, long, default_value_t = 1000)]
     digits: usize,
+
+    /// Depth of the parallel binary splitting (default is 4)
+    #[clap(short, long, default_value_t = 4)]
+    lookup_depth: usize,
 
     /// File to write the result to (default is `pi.txt`)
     #[clap(short, long, default_value = "pi.txt")]
@@ -46,6 +47,7 @@ fn main() {
 
     let Args {
         digits,
+        lookup_depth,
         out_file,
         block_size,
         num_blocks,
@@ -87,9 +89,34 @@ fn main() {
     print!("{}", "Binary splitting...        ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let (_, q, r) = binary_split(1, iters, 0, &sieve);
-    let q = q.num;
-    let r = r.num;
+    // let (_, q, r) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
+    let (_, q_full, r_full) = binary_split_par(1, iters, 0, &sieve, lookup_depth);
+    let mut q = q_full.num;
+    let mut r = r_full.num;
+    let end = std::time::Instant::now();
+    println!(
+        "{} {}",
+        "Done in".green(),
+        format!("{:?}", end - start).cyan()
+    );
+
+    print!("{}", "Finding GCD...             ".green());
+    std::io::stdout().flush().unwrap();
+    let start = std::time::Instant::now();
+    let mut gcd = q.clone();
+    gcd.gcd_mut(&r);
+    let end = std::time::Instant::now();
+    println!(
+        "{} {}",
+        "Done in".green(),
+        format!("{:?}", end - start).cyan()
+    );
+
+    print!("{}", "Dividing by GCD...         ".green());
+    std::io::stdout().flush().unwrap();
+    let start = std::time::Instant::now();
+    q.div_exact_mut(&gcd);
+    r.div_exact_mut(&gcd);
     let end = std::time::Instant::now();
     println!(
         "{} {}",
@@ -216,4 +243,6 @@ fn main() {
         "Done in".green(),
         format!("{:?}", end - start).cyan()
     );
+
+    println!();
 }

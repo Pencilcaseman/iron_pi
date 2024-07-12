@@ -1,7 +1,10 @@
 use crate::fact::{PrimeFactorSieve, PrimeFactors};
+use rayon::prelude::*;
 use rug::{Complete, Integer};
+use std::collections::{HashMap, VecDeque};
 use std::ops::{AddAssign, MulAssign};
 
+#[derive(Debug)]
 pub struct NumFac {
     pub num: Integer,
     pub fac: PrimeFactors,
@@ -12,6 +15,8 @@ pub fn binary_split(
     b: usize,
     depth: usize,
     sieve: &PrimeFactorSieve,
+    lookup_depth: usize,
+    lookup: &mut HashMap<[usize; 2], (NumFac, NumFac, NumFac)>,
 ) -> (NumFac, NumFac, NumFac) {
     if b - a == 1 {
         // Base case
@@ -55,8 +60,20 @@ pub fn binary_split(
 
         let mid = (a + b) / 2;
 
-        let (p1, q1, r1) = binary_split(a, mid, depth + 1, sieve);
-        let (p2, q2, r2) = binary_split(mid, b, depth + 1, sieve);
+        // let (p1, q1, r1) = binary_split(a, mid, depth + 1, sieve, lookup_depth, lookup);
+        // let (p2, q2, r2) = binary_split(mid, b, depth + 1, sieve, lookup_depth, lookup);
+
+        let (p1, q1, r1) = if depth == lookup_depth {
+            lookup.remove(&[a, mid]).unwrap()
+        } else {
+            binary_split(a, mid, depth + 1, sieve, lookup_depth, lookup)
+        };
+
+        let (p2, q2, r2) = if depth == lookup_depth {
+            lookup.remove(&[mid, b]).unwrap()
+        } else {
+            binary_split(mid, b, depth + 1, sieve, lookup_depth, lookup)
+        };
 
         let mut p_fac = &p1.fac * &p2.fac;
         let mut p_num = (&p1.num * &p2.num).complete();
@@ -66,19 +83,17 @@ pub fn binary_split(
 
         let mut r_num = q2.num * r1.num + &p1.num * r2.num;
 
-        if depth > 4 {
-            let gcd_fac = q1.fac.gcd(&r1.fac);
-            let gcd_num = gcd_fac.to_int();
+        let gcd_fac = q1.fac.gcd(&r1.fac);
+        let gcd_num = gcd_fac.to_int();
 
-            unsafe {
-                p_num.div_exact_mut(&gcd_num);
-                p_fac.div_exact_mut(&gcd_fac);
+        unsafe {
+            p_num.div_exact_mut(&gcd_num);
+            p_fac.div_exact_mut(&gcd_fac);
 
-                q_num.div_exact_mut(&gcd_num);
-                q_fac.div_exact_mut(&gcd_fac);
+            q_num.div_exact_mut(&gcd_num);
+            q_fac.div_exact_mut(&gcd_fac);
 
-                r_num.div_exact_mut(&gcd_num);
-            }
+            r_num.div_exact_mut(&gcd_num);
         }
 
         let r_fac = p1.fac.gcd(&r2.fac);
@@ -98,4 +113,41 @@ pub fn binary_split(
 
         (p, q, r)
     }
+}
+
+pub fn binary_split_par(
+    a: usize,
+    b: usize,
+    depth: usize,
+    sieve: &PrimeFactorSieve,
+    lookup_depth: usize,
+    // lookup: Option<&mut HashMap<[usize; 2], (NumFac, NumFac, NumFac)>>,
+) -> (NumFac, NumFac, NumFac) {
+    let mut stack = VecDeque::new();
+    stack.push_back((a, b, depth));
+
+    let mut ranges: Vec<[usize; 2]> = Vec::with_capacity((b - a).ilog2() as usize + 1);
+
+    while let Some((a, b, depth)) = stack.pop_back() {
+        if depth == lookup_depth {
+            ranges.push([a, b]);
+            continue;
+        }
+
+        let mid = (a + b) / 2;
+        stack.push_back((a, mid, depth + 1));
+        stack.push_back((mid, b, depth + 1));
+    }
+
+    let mut lookup: HashMap<[usize; 2], (NumFac, NumFac, NumFac)> = ranges
+        .into_par_iter()
+        .map(|[a, b]| {
+            let (p1, q1, r1) = binary_split(a, b, 0, sieve, usize::MAX, &mut HashMap::new());
+            ([a, b], (p1, q1, r1))
+        })
+        .collect();
+
+    binary_split(a, b, depth + 1, sieve, lookup_depth, &mut lookup)
+
+    // binary_split_par(a, b, depth, sieve, lookup_depth - 1, Some(&mut lookup))
 }

@@ -7,6 +7,7 @@ edition = "2021"
 clap = { version = "4.5.9", features = ["derive"] }
 colored = "2.1.0"
 criterion = { version = "0.5.1", features = ["real_blackbox", "html_reports"] }
+rayon = "1.10.0"
 rug = { version = "1.24.1", features = ["serde"] }
 
 [profile.profile]
