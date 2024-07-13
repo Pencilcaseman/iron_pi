@@ -1,7 +1,7 @@
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{bsplit::binary_split_par, fact::PrimeFactorSieve};
-use rug::{Float, Integer};
+use iron_pi::{bsplit::par_split, fact::PrimeFactorSieve};
+use rug::{Float, Integer, Rational};
 use std::io::Write;
 use std::ops::{AddAssign, MulAssign};
 
@@ -30,6 +30,10 @@ struct Args {
     /// Number of blocks per line (default is 5)
     #[clap(short, long, default_value_t = 5)]
     num_blocks: usize,
+
+    /// Whether to divide by the GCD (default is true)
+    #[clap(short, long)]
+    gcd: bool,
 }
 
 fn format_with_commas(num: usize) -> String {
@@ -51,28 +55,45 @@ fn main() {
         out_file,
         block_size,
         num_blocks,
+        gcd: div_gcd,
     } = Args::parse();
 
-    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 1;
+    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 * 2; // Double the precision
     let iters = ((digits as f64) / DIGITS_PER_ITER) as usize + 1;
+    let max_depth = iters.ilog2();
 
     println!(
         "{} {}",
-        "Digits    : ".green(),
+        "Digits        : ".green(),
         format_with_commas(digits).cyan().bold(),
     );
+
     println!(
         "{} {}",
-        "Precision : ".green(),
+        "Precision     : ".green(),
         format!("{} bits", format_with_commas(prec as usize))
             .cyan()
             .bold()
     );
+
     println!(
         "{} {}",
-        "Iterations: ".green(),
+        "Iterations    : ".green(),
         format_with_commas(iters).cyan().bold()
     );
+
+    println!(
+        "{} {}",
+        "Max depth     : ".green(),
+        format_with_commas(max_depth as usize).cyan().bold()
+    );
+
+    println!(
+        "{} {}",
+        "Parallel depth: ".green(),
+        format_with_commas(lookup_depth).cyan().bold()
+    );
+
     println!();
 
     print!("{}", "Generating factor sieve... ".green());
@@ -89,8 +110,11 @@ fn main() {
     print!("{}", "Binary splitting...        ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    // let (_, q, r) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
-    let (_, q_full, r_full) = binary_split_par(1, iters, 0, &sieve, lookup_depth);
+    // let (_, q_full, r_full) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
+    // let (_, q_full, r_full) = binary_split_par(1, iters, 0, &sieve, lookup_depth, None);
+
+    let mut lookup = par_split(1, iters, 0, &sieve, lookup_depth);
+    let (_, q_full, r_full) = lookup.remove(&[1, iters]).unwrap();
     let mut q = q_full.num;
     let mut r = r_full.num;
     let end = std::time::Instant::now();
@@ -100,29 +124,33 @@ fn main() {
         format!("{:?}", end - start).cyan()
     );
 
-    print!("{}", "Finding GCD...             ".green());
-    std::io::stdout().flush().unwrap();
-    let start = std::time::Instant::now();
-    let mut gcd = q.clone();
-    gcd.gcd_mut(&r);
-    let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    if div_gcd {
+        print!("{}", "Finding GCD...             ".green());
+        std::io::stdout().flush().unwrap();
+        let start = std::time::Instant::now();
+        let mut gcd = q.clone();
+        gcd.gcd_mut(&r);
+        let end = std::time::Instant::now();
+        println!(
+            "{} {}",
+            "Done in".green(),
+            format!("{:?}", end - start).cyan()
+        );
 
-    print!("{}", "Dividing by GCD...         ".green());
-    std::io::stdout().flush().unwrap();
-    let start = std::time::Instant::now();
-    q.div_exact_mut(&gcd);
-    r.div_exact_mut(&gcd);
-    let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+        print!("{}", "Dividing by GCD...         ".green());
+        std::io::stdout().flush().unwrap();
+        let start = std::time::Instant::now();
+        q.div_exact_mut(&gcd);
+        r.div_exact_mut(&gcd);
+        let end = std::time::Instant::now();
+        println!(
+            "{} {}",
+            "Done in".green(),
+            format!("{:?}", end - start).cyan()
+        );
+    } else {
+        println!("{}", "Skipping GCD...".purple().bold());
+    }
 
     print!("{}", "Calculating numerator...   ".green());
     std::io::stdout().flush().unwrap();
@@ -152,7 +180,29 @@ fn main() {
     print!("{}", "Dividing...                ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let div = Float::with_val(prec, num) / Float::with_val(prec, den);
+    // let div = Float::with_val(prec, num) / Float::with_val(prec, den);
+
+    // let num = Float::with_val(prec, num);
+    // let den = Float::with_val(prec, den);
+
+    let div = if div_gcd {
+        unsafe { Rational::from_canonical(num, den) }
+    } else {
+        Rational::from((num, den))
+    };
+
+    // if num.is_infinite() || num.is_nan() {
+    //     println!("{}", "Numerator is 'infinite' or 'NaN'.".red().bold());
+    //     return;
+    // }
+    //
+    // if den.is_infinite() || den.is_nan() {
+    //     println!("{}", "Denominator is 'infinite' or 'NaN'.".red().bold());
+    //     return;
+    // }
+    //
+    // let div = num / den;
+
     let end = std::time::Instant::now();
     println!(
         "{} {}",
