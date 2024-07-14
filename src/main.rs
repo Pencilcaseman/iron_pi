@@ -1,7 +1,7 @@
 use clap::Parser;
 use colored::Colorize;
 use iron_pi::{bsplit::par_split, fact::PrimeFactorSieve};
-use rug::{Float, Integer, Rational};
+use rug::{Float, Integer};
 use std::io::Write;
 use std::ops::{AddAssign, MulAssign};
 
@@ -58,9 +58,17 @@ fn main() {
         gcd: div_gcd,
     } = Args::parse();
 
-    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 * 2; // Double the precision
-    let iters = ((digits as f64) / DIGITS_PER_ITER) as usize + 1;
+    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16; // Double the precision
+    let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
     let max_depth = iters.ilog2();
+
+    unsafe {
+        // We need the most precision possible with MPFR. Without this,
+        // MPFR cannot convert the numerator and denominator into floats
+        // after more than ~100,000,000 digits
+        let max = gmp_mpfr_sys::mpfr::get_emax_max();
+        gmp_mpfr_sys::mpfr::set_emax(max);
+    }
 
     println!(
         "{} {}",
@@ -95,6 +103,8 @@ fn main() {
     );
 
     println!();
+
+    let global_start = std::time::Instant::now();
 
     print!("{}", "Generating factor sieve... ".green());
     std::io::stdout().flush().unwrap();
@@ -158,10 +168,17 @@ fn main() {
     let mut num = Integer::from(426880);
     num.mul_assign(&q);
     let end = std::time::Instant::now();
-    println!(
+    print!(
         "{} {}",
         "Done in".green(),
         format!("{:?}", end - start).cyan()
+    );
+    println!(
+        "\t {} {}",
+        format_with_commas(unsafe { gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10) })
+            .truecolor(255, 47, 106)
+            .bold(),
+        "digits".truecolor(255, 47, 106),
     );
 
     print!("{}", "Calculating denominator... ".green());
@@ -171,10 +188,17 @@ fn main() {
     den.mul_assign(q);
     den.add_assign(r);
     let end = std::time::Instant::now();
-    println!(
+    print!(
         "{} {}",
         "Done in".green(),
         format!("{:?}", end - start).cyan()
+    );
+    println!(
+        "\t {} {}",
+        format_with_commas(unsafe { gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10) })
+            .truecolor(255, 47, 106)
+            .bold(),
+        "digits".truecolor(255, 47, 106),
     );
 
     print!("{}", "Dividing...                ".green());
@@ -182,26 +206,26 @@ fn main() {
     let start = std::time::Instant::now();
     // let div = Float::with_val(prec, num) / Float::with_val(prec, den);
 
-    // let num = Float::with_val(prec, num);
-    // let den = Float::with_val(prec, den);
+    let num = Float::with_val(prec, num);
+    let den = Float::with_val(prec, den);
 
-    let div = if div_gcd {
-        unsafe { Rational::from_canonical(num, den) }
-    } else {
-        Rational::from((num, den))
-    };
+    if num.is_infinite() || num.is_nan() {
+        println!("{}", "Numerator is 'infinite' or 'NaN'.".red().bold());
+        return;
+    }
 
-    // if num.is_infinite() || num.is_nan() {
-    //     println!("{}", "Numerator is 'infinite' or 'NaN'.".red().bold());
-    //     return;
-    // }
-    //
-    // if den.is_infinite() || den.is_nan() {
-    //     println!("{}", "Denominator is 'infinite' or 'NaN'.".red().bold());
-    //     return;
-    // }
-    //
-    // let div = num / den;
+    if den.is_infinite() || den.is_nan() {
+        println!("{}", "Denominator is 'infinite' or 'NaN'.".red().bold());
+        return;
+    }
+
+    let div = num / den;
+
+    // let div = if div_gcd {
+    //     unsafe { Rational::from_canonical(num, den) }
+    // } else {
+    //     Rational::from((num, den))
+    // };
 
     let end = std::time::Instant::now();
     println!(
@@ -292,6 +316,15 @@ fn main() {
         "{} {}",
         "Done in".green(),
         format!("{:?}", end - start).cyan()
+    );
+
+    println!();
+
+    let global_end = std::time::Instant::now();
+    println!(
+        "{} {}",
+        "Total time: ".green(),
+        format!("{:?}", global_end - global_start).cyan()
     );
 
     println!();

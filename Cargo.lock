@@ -291,6 +291,7 @@ dependencies = [
  "clap",
  "colored",
  "criterion",
+ "gmp-mpfr-sys",
  "rayon",
  "rug",
 ]

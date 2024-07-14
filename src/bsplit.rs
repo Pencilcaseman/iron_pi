@@ -86,7 +86,13 @@ pub fn binary_split(
         // let mut r_num = q2.num * r1.num + &p1.num * r2.num;
         let mut r_num = (&q2.num * &r1.num).complete() + (&p1.num * &r2.num).complete();
 
+        // WARNING: This line
         let gcd_fac = q1.fac.gcd(&r1.fac);
+
+        // let gcd_fac = p1.fac.gcd(&q2.fac);
+        // let gcd_fac = q_fac.gcd(&r1.fac);
+        // let gcd_fac = q_fac.gcd(&p_fac);
+
         let gcd_num = gcd_fac.to_int();
 
         unsafe {
@@ -99,7 +105,10 @@ pub fn binary_split(
             r_num.div_exact_mut(&gcd_num);
         }
 
+        // WARNING: This line
         let r_fac = p1.fac.gcd(&r2.fac);
+
+        // let r_fac = q_fac.gcd(&r2.fac);
 
         let p = NumFac {
             num: p_num,
