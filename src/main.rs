@@ -16,26 +16,27 @@ struct Args {
     #[clap(short, long, default_value_t = 1000)]
     digits: usize,
 
-    /// Depth of the parallel binary splitting (default is 4)
+    /// Depth of the parallel binary splitting
     #[clap(short, long, default_value_t = 4)]
     lookup_depth: usize,
 
-    /// File to write the result to (default is `pi.txt`)
+    /// File to write the result to
     #[clap(short, long, default_value = "pi.txt")]
     out_file: String,
 
-    /// Number of digits per block (default is 10)
+    /// Number of digits per block
     #[clap(short, long, default_value_t = 10)]
     block_size: usize,
 
-    /// Number of blocks per line (default is 5)
+    /// Number of blocks per line
     #[clap(short, long, default_value_t = 5)]
     num_blocks: usize,
 
-    /// Whether to divide by the GCD (default is true)
+    /// Whether to divide by the GCD
     #[clap(short, long)]
     gcd: bool,
 
+    /// Number of threads to use (defaults to all available threads)
     #[clap(short, long, default_value_t = 0)]
     threads: usize,
 }
@@ -137,8 +138,6 @@ fn main() {
     print!("{}", "Binary splitting...        ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    // let (_, q_full, r_full) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
-    // let (_, q_full, r_full) = binary_split_par(1, iters, 0, &sieve, lookup_depth, None);
 
     let (mut q, mut r) = if threads == 1 {
         let (_, q, r) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
@@ -146,8 +145,6 @@ fn main() {
     } else {
         let mut lookup = par_split(1, iters, 0, &sieve, lookup_depth);
         let (_, q_full, r_full) = lookup.remove(&[1, iters]).unwrap();
-        // let mut q = q_full.num;
-        // let mut r = r_full.num;
         (q_full.num, r_full.num)
     };
 
