@@ -1,7 +1,8 @@
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{bsplit::par_split, fact::PrimeFactorSieve};
+use iron_pi::{bsplit::binary_split, bsplit::par_split, fact::PrimeFactorSieve};
 use rug::{Float, Integer};
+use std::collections::HashMap;
 use std::io::Write;
 use std::ops::{AddAssign, MulAssign};
 
@@ -34,6 +35,9 @@ struct Args {
     /// Whether to divide by the GCD (default is true)
     #[clap(short, long)]
     gcd: bool,
+
+    #[clap(short, long, default_value_t = 0)]
+    threads: usize,
 }
 
 fn format_with_commas(num: usize) -> String {
@@ -56,7 +60,14 @@ fn main() {
         block_size,
         num_blocks,
         gcd: div_gcd,
+        threads,
     } = Args::parse();
+
+    // Set the number of threads
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+        .unwrap();
 
     let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16; // Double the precision
     let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
@@ -98,6 +109,12 @@ fn main() {
 
     println!(
         "{} {}",
+        "Threads       : ".green(),
+        format_with_commas(threads).cyan().bold()
+    );
+
+    println!(
+        "{} {}",
         "Parallel depth: ".green(),
         format_with_commas(lookup_depth).cyan().bold()
     );
@@ -123,10 +140,17 @@ fn main() {
     // let (_, q_full, r_full) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
     // let (_, q_full, r_full) = binary_split_par(1, iters, 0, &sieve, lookup_depth, None);
 
-    let mut lookup = par_split(1, iters, 0, &sieve, lookup_depth);
-    let (_, q_full, r_full) = lookup.remove(&[1, iters]).unwrap();
-    let mut q = q_full.num;
-    let mut r = r_full.num;
+    let (mut q, mut r) = if threads == 1 {
+        let (_, q, r) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
+        (q.num, r.num)
+    } else {
+        let mut lookup = par_split(1, iters, 0, &sieve, lookup_depth);
+        let (_, q_full, r_full) = lookup.remove(&[1, iters]).unwrap();
+        // let mut q = q_full.num;
+        // let mut r = r_full.num;
+        (q_full.num, r_full.num)
+    };
+
     let end = std::time::Instant::now();
     println!(
         "{} {}",
