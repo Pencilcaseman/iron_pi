@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.9", features = ["derive"] }
+clap = { version = "4.5.23", features = ["derive"] }
 colored = "2.1.0"
 criterion = { version = "0.5.1", features = ["real_blackbox", "html_reports"] }
 gmp-mpfr-sys = "1.6.4"
 rayon = "1.10.0"
-rug = { version = "1.24.1", features = ["serde"] }
+rug = { version = "1.26.1", features = ["serde"] }
 
 [profile.profile]
 inherits = "release"

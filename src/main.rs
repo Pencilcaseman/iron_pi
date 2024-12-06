@@ -70,7 +70,7 @@ fn main() {
         .build_global()
         .unwrap();
 
-    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16; // Double the precision
+    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16;
     let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
     let max_depth = iters.ilog2();
 
