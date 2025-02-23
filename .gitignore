@@ -3,3 +3,4 @@
 pi*.txt
 flamegraph.svg
 .DS_Store
+Cargo.lock
