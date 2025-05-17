@@ -16,7 +16,13 @@ fn bench_prime_factors(crit: &mut Criterion) {
     let e = PrimeFactors::new(&sieve, 6);
 
     crit.bench_function("a * b * c * d * e", |bench| {
-        bench.iter(|| black_box(&a) * black_box(&b) * black_box(&c) * black_box(&d) * black_box(&e))
+        bench.iter(|| {
+            black_box(&a)
+                * black_box(&b)
+                * black_box(&c)
+                * black_box(&d)
+                * black_box(&e)
+        })
     });
 
     crit.bench_function("PrimeFactors::new(3_628_800)", |b| {
@@ -48,9 +54,7 @@ fn bench_split_mul(crit: &mut Criterion) {
         PrimeFactors::new(&sieve, 32437521),
     ];
 
-    let m = numbers
-        .iter()
-        .fold(PrimeFactors::new(&sieve, 1), |a, b| a * b);
+    let m = numbers.iter().fold(PrimeFactors::new(&sieve, 1), |a, b| a * b);
 
     crit.bench_function("bench_split_mul", |bench| {
         bench.iter(|| black_box(&m).split_mul(0, black_box(m.0.len())))
@@ -83,9 +87,7 @@ fn bench_div_gcd(crit: &mut Criterion) {
         PrimeFactors::new(&sieve, 32437521),
     ];
 
-    let mut m = numbers
-        .iter()
-        .fold(PrimeFactors::new(&sieve, 1), |a, b| a * b);
+    let mut m = numbers.iter().fold(PrimeFactors::new(&sieve, 1), |a, b| a * b);
 
     crit.bench_function("bench_div_gcd", |bench| {
         bench.iter(|| {

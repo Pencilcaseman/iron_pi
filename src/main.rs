@@ -1,10 +1,16 @@
+use std::{
+    collections::HashMap,
+    io::Write,
+    ops::{AddAssign, MulAssign},
+};
+
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{bsplit::binary_split, bsplit::par_split, fact::PrimeFactorSieve};
+use iron_pi::{
+    bsplit::{binary_split, par_split},
+    fact::PrimeFactorSieve,
+};
 use rug::{Float, Integer};
-use std::collections::HashMap;
-use std::io::Write;
-use std::ops::{AddAssign, MulAssign};
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
 const DIGITS_PER_ITER: f64 = 14.181647462725478;
@@ -52,7 +58,7 @@ fn format_with_commas(num: usize) -> String {
 }
 
 fn main() {
-    println!("{}", "PI Calculator".red().bold());
+    println!("{}", "========== IronPI ==========".red().bold());
 
     let Args {
         digits,
@@ -70,7 +76,8 @@ fn main() {
         .build_global()
         .unwrap();
 
-    let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16;
+    // let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16;
+    let prec = (digits as f64 * BITS_PER_DIGIT) as u64 + 16;
     let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
     let max_depth = iters.ilog2();
 
@@ -91,9 +98,7 @@ fn main() {
     println!(
         "{} {}",
         "Precision     : ".green(),
-        format!("{} bits", format_with_commas(prec as usize))
-            .cyan()
-            .bold()
+        format!("{} bits", format_with_commas(prec as usize)).cyan().bold()
     );
 
     println!(
@@ -129,18 +134,15 @@ fn main() {
     let start = std::time::Instant::now();
     let sieve = PrimeFactorSieve::new((3 * 5 * 23 * 29 + 1).max(6 * iters));
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Binary splitting...        ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
 
     let (mut q, mut r) = if threads == 1 {
-        let (_, q, r) = binary_split(1, iters, 0, &sieve, usize::MAX, &mut HashMap::new());
+        let (_, q, r) =
+            binary_split(1, iters, 0, &sieve, usize::MAX, &HashMap::new());
         (q.num, r.num)
     } else {
         let mut lookup = par_split(1, iters, 0, &sieve, lookup_depth);
@@ -149,11 +151,7 @@ fn main() {
     };
 
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     if div_gcd {
         print!("{}", "Finding GCD...             ".green());
@@ -189,16 +187,14 @@ fn main() {
     let mut num = Integer::from(426880);
     num.mul_assign(&q);
     let end = std::time::Instant::now();
-    print!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    print!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!(
         "\t {} {}",
-        format_with_commas(unsafe { gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10) })
-            .truecolor(255, 47, 106)
-            .bold(),
+        format_with_commas(unsafe {
+            gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10)
+        })
+        .truecolor(255, 47, 106)
+        .bold(),
         "digits".truecolor(255, 47, 106),
     );
 
@@ -209,16 +205,14 @@ fn main() {
     den.mul_assign(q);
     den.add_assign(r);
     let end = std::time::Instant::now();
-    print!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    print!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!(
         "\t {} {}",
-        format_with_commas(unsafe { gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10) })
-            .truecolor(255, 47, 106)
-            .bold(),
+        format_with_commas(unsafe {
+            gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10)
+        })
+        .truecolor(255, 47, 106)
+        .bold(),
         "digits".truecolor(255, 47, 106),
     );
 
@@ -227,8 +221,8 @@ fn main() {
     let start = std::time::Instant::now();
     // let div = Float::with_val(prec, num) / Float::with_val(prec, den);
 
-    let num = Float::with_val(prec, num);
-    let den = Float::with_val(prec, den);
+    let num = Float::with_val_64(prec, num);
+    let den = Float::with_val_64(prec, den);
 
     if num.is_infinite() || num.is_nan() {
         println!("{}", "Numerator is 'infinite' or 'NaN'.".red().bold());
@@ -249,33 +243,21 @@ fn main() {
     // };
 
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Square root...             ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let sqrt = Float::with_val(prec, 10005).sqrt();
+    let sqrt = Float::with_val_64(prec, 10005).sqrt();
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Final multiplication...    ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
     let pi = div * sqrt;
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!();
 
     print!("{}", "Converting to string...    ".green());
@@ -288,11 +270,7 @@ fn main() {
         .skip(2)
         .collect();
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Formatting string...       ".green());
     std::io::stdout().flush().unwrap();
@@ -319,11 +297,7 @@ fn main() {
         .collect();
 
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Writing to file...         ".green());
     std::io::stdout().flush().unwrap();
@@ -333,11 +307,7 @@ fn main() {
     // file.write_all(&pi_bytes).unwrap();
     file.write_all(&formatted_pi).unwrap();
     let end = std::time::Instant::now();
-    println!(
-        "{} {}",
-        "Done in".green(),
-        format!("{:?}", end - start).cyan()
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     println!();
 
