@@ -23,7 +23,7 @@ struct Args {
     digits: usize,
 
     /// Depth of the parallel binary splitting
-    #[clap(short, long, default_value_t = 4)]
+    #[clap(short, long, default_value_t = 0)]
     lookup_depth: usize,
 
     /// File to write the result to
@@ -80,6 +80,12 @@ fn main() {
     let prec = (digits as f64 * BITS_PER_DIGIT) as u64 + 16;
     let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
     let max_depth = iters.ilog2();
+
+    let lookup_depth = if lookup_depth == 0 {
+        (max_depth as usize - 6).max(1)
+    } else {
+        lookup_depth
+    };
 
     unsafe {
         // We need the most precision possible with MPFR. Without this,
