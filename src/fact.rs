@@ -1,6 +1,6 @@
 use rug::{ops::NegAssign, Integer};
 
-const INITIAL_CAPACITY: usize = 512;
+const INITIAL_CAPACITY: usize = 4096;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FactorSieveElement {

@@ -1,15 +1,11 @@
 use std::{
-    collections::HashMap,
     io::Write,
     ops::{AddAssign, MulAssign},
 };
 
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{
-    bsplit::{binary_split, par_split},
-    fact::PrimeFactorSieve,
-};
+use iron_pi::{bsplit::binary_split_work_stealing, fact::PrimeFactorSieve};
 use rug::{Float, Integer};
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
@@ -22,10 +18,6 @@ struct Args {
     #[clap(short, long, default_value_t = 1000)]
     digits: usize,
 
-    /// Depth of the parallel binary splitting
-    #[clap(short, long, default_value_t = 0)]
-    lookup_depth: usize,
-
     /// File to write the result to
     #[clap(short, long, default_value = "pi.txt")]
     out_file: String,
@@ -34,13 +26,12 @@ struct Args {
     #[clap(short, long, default_value_t = 10)]
     block_size: usize,
 
+    #[clap(short = 'B', long, default_value_t = 10)]
+    base: i32,
+
     /// Number of blocks per line
     #[clap(short, long, default_value_t = 5)]
     num_blocks: usize,
-
-    /// Whether to divide by the GCD
-    #[clap(short, long)]
-    gcd: bool,
 
     /// Number of threads to use (defaults to all available threads)
     #[clap(short, long, default_value_t = 0)]
@@ -60,15 +51,8 @@ fn format_with_commas(num: usize) -> String {
 fn main() {
     println!("{}", "========== IronPI ==========".red().bold());
 
-    let Args {
-        digits,
-        lookup_depth,
-        out_file,
-        block_size,
-        num_blocks,
-        gcd: div_gcd,
-        threads,
-    } = Args::parse();
+    let Args { digits, out_file, mut base, block_size, num_blocks, threads } =
+        Args::parse();
 
     // Set the number of threads
     rayon::ThreadPoolBuilder::new()
@@ -81,18 +65,22 @@ fn main() {
     let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
     let max_depth = iters.ilog2();
 
-    let lookup_depth = if lookup_depth == 0 {
-        (max_depth as usize - 6).max(1)
-    } else {
-        lookup_depth
-    };
-
     unsafe {
         // We need the most precision possible with MPFR. Without this,
         // MPFR cannot convert the numerator and denominator into floats
         // after more than ~100,000,000 digits
         let max = gmp_mpfr_sys::mpfr::get_emax_max();
         gmp_mpfr_sys::mpfr::set_emax(max);
+    }
+
+    if !(2..=36).contains(&base) {
+        println!(
+            "{}",
+            "Warning: Base must be in the range [2, 36]".red().bold()
+        );
+
+        base = base.clamp(2, 36);
+        println!("{}", format!("Warning: Setting base to {base}").red().bold());
     }
 
     println!(
@@ -125,12 +113,6 @@ fn main() {
         format_with_commas(threads).cyan().bold()
     );
 
-    println!(
-        "{} {}",
-        "Parallel depth: ".green(),
-        format_with_commas(lookup_depth).cyan().bold()
-    );
-
     println!();
 
     let global_start = std::time::Instant::now();
@@ -146,46 +128,19 @@ fn main() {
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
 
-    let (mut q, mut r) = if threads == 1 {
-        let (_, q, r) =
-            binary_split(1, iters, 0, &sieve, usize::MAX, &HashMap::new());
-        (q.num, r.num)
-    } else {
-        let mut lookup = par_split(1, iters, 0, &sieve, lookup_depth);
-        let (_, q_full, r_full) = lookup.remove(&[1, iters]).unwrap();
-        (q_full.num, r_full.num)
-    };
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .expect("Failed to build pool");
+
+    let (_, q_full, r_full) =
+        binary_split_work_stealing(1, iters, &sieve, &pool);
+
+    let q = q_full.num;
+    let r = r_full.num;
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
-
-    if div_gcd {
-        print!("{}", "Finding GCD...             ".green());
-        std::io::stdout().flush().unwrap();
-        let start = std::time::Instant::now();
-        let mut gcd = q.clone();
-        gcd.gcd_mut(&r);
-        let end = std::time::Instant::now();
-        println!(
-            "{} {}",
-            "Done in".green(),
-            format!("{:?}", end - start).cyan()
-        );
-
-        print!("{}", "Dividing by GCD...         ".green());
-        std::io::stdout().flush().unwrap();
-        let start = std::time::Instant::now();
-        q.div_exact_mut(&gcd);
-        r.div_exact_mut(&gcd);
-        let end = std::time::Instant::now();
-        println!(
-            "{} {}",
-            "Done in".green(),
-            format!("{:?}", end - start).cyan()
-        );
-    } else {
-        println!("{}", "Skipping GCD...".purple().bold());
-    }
 
     print!("{}", "Calculating numerator...   ".green());
     std::io::stdout().flush().unwrap();
@@ -225,7 +180,6 @@ fn main() {
     print!("{}", "Dividing...                ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    // let div = Float::with_val(prec, num) / Float::with_val(prec, den);
 
     let num = Float::with_val_64(prec, num);
     let den = Float::with_val_64(prec, den);
@@ -241,12 +195,6 @@ fn main() {
     }
 
     let div = num / den;
-
-    // let div = if div_gcd {
-    //     unsafe { Rational::from_canonical(num, den) }
-    // } else {
-    //     Rational::from((num, den))
-    // };
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
@@ -269,8 +217,10 @@ fn main() {
     print!("{}", "Converting to string...    ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
+
+    let base_digits = (digits as f64 / (base as f64).log10()).round() as usize;
     let pi_bytes: Vec<u8> = pi
-        .to_string_radix(10, Some(digits + 1))
+        .to_string_radix(base, Some(base_digits + 1))
         .into_bytes()
         .into_iter()
         .skip(2)
@@ -285,9 +235,7 @@ fn main() {
     let formatted_pi: Vec<u8> = pi_bytes
         .into_iter()
         .enumerate()
-        .flat_map(|(i, c)| {
-            // let pos = i + 1;
-            let pos = i;
+        .flat_map(|(pos, c)| {
             if pos % (block_size * num_blocks) == 0 {
                 // Start of a new line
                 vec![b'\n', b' ', b' ', c]
@@ -310,7 +258,6 @@ fn main() {
     let start = std::time::Instant::now();
     let mut file = std::fs::File::create(out_file).unwrap();
     file.write_all(b"3.\n").unwrap();
-    // file.write_all(&pi_bytes).unwrap();
     file.write_all(&formatted_pi).unwrap();
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
