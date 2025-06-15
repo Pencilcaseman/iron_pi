@@ -1,9 +1,5 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    ops::{AddAssign, MulAssign},
-};
+use std::ops::{AddAssign, MulAssign};
 
-use rayon::prelude::*;
 use rug::{Complete, Integer};
 
 use crate::fact::{PrimeFactorSieve, PrimeFactors};
