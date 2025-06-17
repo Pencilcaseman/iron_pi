@@ -1,6 +1,6 @@
 use crate::util;
 
-const INITIAL_CAPACITY: usize = 4096;
+const INITIAL_CAPACITY: usize = 256;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FactorSieveElement {
@@ -127,8 +127,6 @@ impl PrimeFactors {
         ) -> flint3_sys::fmpz_t {
             if b - a < 32 {
                 // Repeated multiplication
-                // let mut result = rug::Integer::from(1);
-
                 unsafe {
                     let mut res = util::new_fmpz_with(1);
 
@@ -152,7 +150,6 @@ impl PrimeFactors {
                 let mut lhs = split_mul(factors, a, mid);
                 let rhs = split_mul(factors, mid, b);
 
-                // lhs * rhs
                 unsafe {
                     flint3_sys::fmpz_mul(&mut lhs[0], &lhs[0], &rhs[0]);
                     lhs
@@ -242,9 +239,6 @@ impl PrimeFactors {
 
         let to_remove = to_remove.to_int();
 
-        // lhs_int.div_exact_mut(&to_remove);
-        // rhs_int.div_exact_mut(&to_remove);
-
         unsafe {
             flint3_sys::fmpz_divexact(
                 &mut lhs_int[0],
@@ -261,9 +255,6 @@ impl PrimeFactors {
         if lhs_factors.neg && rhs_factors.neg {
             lhs_factors.neg = false;
             rhs_factors.neg = false;
-
-            // lhs_int.neg_assign();
-            // rhs_int.neg_assign();
 
             unsafe {
                 flint3_sys::fmpz_neg(&mut lhs_int[0], &lhs_int[0]);
@@ -298,6 +289,7 @@ impl PrimeFactors {
 
     pub fn mul_into(out: &mut Self, lhs: &Self, rhs: &Self) {
         out.factors.clear(); // Clear out the existing factors. Pushes are now free
+        out.factors.reserve(lhs.factors.len() + rhs.factors.len());
 
         let mut i = 0;
         let mut j = 0;
@@ -367,16 +359,14 @@ impl std::ops::Mul<&PrimeFactors> for PrimeFactors {
     }
 }
 
-impl<'a> std::ops::Mul<PrimeFactors> for &'a PrimeFactors {
+impl std::ops::Mul<PrimeFactors> for &PrimeFactors {
     type Output = PrimeFactors;
 
     fn mul(self, rhs: PrimeFactors) -> Self::Output {
         #[allow(clippy::suspicious_arithmetic_impl)]
         let mut result = PrimeFactors {
             neg: self.neg ^ rhs.neg,
-            factors: Vec::with_capacity(
-                self.factors.len().max(rhs.factors.len()),
-            ),
+            factors: Vec::with_capacity(self.factors.len() + rhs.factors.len()),
         };
 
         PrimeFactors::mul_into(&mut result, self, &rhs);
@@ -391,9 +381,7 @@ impl<'a> std::ops::Mul<&'a PrimeFactors> for &'a PrimeFactors {
         #[allow(clippy::suspicious_arithmetic_impl)]
         let mut result = PrimeFactors {
             neg: self.neg ^ rhs.neg,
-            factors: Vec::with_capacity(
-                self.factors.len().max(rhs.factors.len()),
-            ),
+            factors: Vec::with_capacity(self.factors.len() + rhs.factors.len()),
         };
 
         PrimeFactors::mul_into(&mut result, self, rhs);

@@ -3,6 +3,8 @@ use crate::{
     util,
 };
 
+const PAR_THRESHOLD: u64 = 8192;
+
 #[derive(Debug)]
 pub struct NumFac {
     pub num: flint3_sys::fmpz_t,
@@ -35,21 +37,8 @@ pub fn binary_split_work_stealing(
         let q_num = q_fac.to_int();
         let factored_q = NumFac { num: q_num, fac: q_fac };
 
-        // let mut r_num = Integer::from(545_140_134);
         unsafe {
-            // (545_140_134 * a + 13_591_409) * p_num
-
-            // let mut r_num: flint3_sys::fmpz_t =
-            //     std::mem::MaybeUninit::uninit().assume_init();
-            // flint3_sys::fmpz_init_set_ui(&mut r_num[0], 545_140_134);
-
             let mut r_num = util::new_fmpz_with(545_140_134);
-
-            // r_num.mul_assign(a);
-            // r_num.add_assign(13_591_409);
-            // r_num.mul_assign(&p_num);
-
-            // r = (r * a + 13_591_409) * p_num
 
             flint3_sys::fmpz_mul_ui(&mut r_num[0], &r_num[0], a);
             flint3_sys::fmpz_add_ui(&mut r_num[0], &r_num[0], 13_591_409);
@@ -69,15 +58,6 @@ pub fn binary_split_work_stealing(
                 || binary_split_work_stealing(a, mid, sieve, thread_pool),
                 || binary_split_work_stealing(mid, b, sieve, thread_pool),
             );
-
-        // let mut p_fac = &p1.fac * &p2.fac;
-        // let mut p_num = (&p1.num * &p2.num).complete();
-        //
-        // let mut q_fac = &q1.fac * &p2.fac;
-        // let mut q_num = (&q1.num * &q2.num).complete();
-
-        // let mut r_num =
-        //     (&q2.num * &r1.num).complete() + (&p1.num * &r2.num).complete();
 
         unsafe {
             let mut p_fac = &p1.fac * &p2.fac;
@@ -103,14 +83,6 @@ pub fn binary_split_work_stealing(
 
             let gcd_num = gcd_fac.to_int();
 
-            // p_num.div_exact_mut(&gcd_num);
-            // p_fac.div_exact_mut(&gcd_fac);
-            //
-            // q_num.div_exact_mut(&gcd_num);
-            // q_fac.div_exact_mut(&gcd_fac);
-            //
-            // r_num.div_exact_mut(&gcd_num);
-
             flint3_sys::fmpz_divexact(&mut p_num[0], &p_num[0], &gcd_num[0]);
             p_fac.div_exact_mut(&gcd_fac);
 
@@ -134,5 +106,78 @@ pub fn binary_split_work_stealing(
 
             (p, q, r)
         }
+    }
+}
+
+pub fn binary_split_2(
+    a: u64,
+    b: u64,
+    q_partial: &flint3_sys::fmpz_t,
+    thread_pool: &rayon::ThreadPool,
+) -> (flint3_sys::fmpz_t, flint3_sys::fmpz_t, flint3_sys::fmpz_t) {
+    unsafe {
+        if b - a == 1 {
+            // P(a, a + 1) = -(6a - 1)(6a - 5)(2a - 1)
+            let mut p = util::new_fmpz_with(6 * a - 1);
+            flint3_sys::fmpz_mul_ui(&mut p[0], &p[0], 6 * a - 5);
+            flint3_sys::fmpz_mul_ui(&mut p[0], &p[0], 2 * a - 1);
+            flint3_sys::fmpz_neg(&mut p[0], &p[0]);
+
+            // Q(a, a + 1) = a^3 * 640320^3 / 24
+            let mut q = util::new_fmpz_with(a * a); // Safe for digits < 2e+20
+            flint3_sys::fmpz_mul(&mut q[0], &q[0], &q_partial[0]);
+            flint3_sys::fmpz_mul_ui(&mut q[0], &q[0], a);
+
+            // R(a, a + 1) = P(a, a + 1) * (545140134 * a + 13591409)
+            let mut r = util::new_fmpz_with(545_140_134);
+            flint3_sys::fmpz_mul_ui(&mut r[0], &r[0], a);
+            flint3_sys::fmpz_add_ui(&mut r[0], &r[0], 13_591_409);
+            flint3_sys::fmpz_mul(&mut r[0], &r[0], &p[0]);
+
+            (p, q, r)
+        } else {
+            let mid = (a + b) / 2;
+
+            let ((mut p1, mut q1, mut r1), (mut p2, mut q2, mut r2)) =
+                if b - a < PAR_THRESHOLD {
+                    (
+                        binary_split_2(a, mid, q_partial, thread_pool),
+                        binary_split_2(mid, b, q_partial, thread_pool),
+                    )
+                } else {
+                    thread_pool.join(
+                        || binary_split_2(a, mid, q_partial, thread_pool),
+                        || binary_split_2(mid, b, q_partial, thread_pool),
+                    )
+                };
+
+            flint3_sys::fmpz_mul(&mut p2[0], &p1[0], &p2[0]);
+            flint3_sys::fmpz_mul(&mut q1[0], &q1[0], &q2[0]);
+            flint3_sys::fmpz_fmma(&mut r2[0], &q2[0], &r1[0], &p1[0], &r2[0]);
+
+            flint3_sys::fmpz_clear(&mut p1[0]);
+            flint3_sys::fmpz_clear(&mut q2[0]);
+            flint3_sys::fmpz_clear(&mut r1[0]);
+
+            (p2, q1, r2)
+        }
+    }
+}
+
+pub fn binary_split(
+    a: u64,
+    b: u64,
+    thread_pool: &rayon::ThreadPool,
+) -> (flint3_sys::fmpz_t, flint3_sys::fmpz_t, flint3_sys::fmpz_t) {
+    unsafe {
+        let mut q_partial = util::new_fmpz_with(640320);
+        flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320);
+        flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320 / 24);
+
+        let res = binary_split_2(a, b, &q_partial, thread_pool);
+
+        flint3_sys::fmpz_clear(&mut q_partial[0]);
+
+        res
     }
 }

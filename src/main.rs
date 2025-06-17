@@ -2,7 +2,7 @@ use std::io::Write;
 
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{bsplit::binary_split_work_stealing, fact::PrimeFactorSieve};
+use iron_pi::{bsplit::binary_split, fact::PrimeFactorSieve};
 use rayon::prelude::*;
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
@@ -134,11 +134,13 @@ fn main() {
         flint3_sys::flint_set_num_threads(threads as i32);
     }
 
-    let (_, q_full, r_full) =
-        binary_split_work_stealing(1, iters, &sieve, &pool);
+    // let (_, q_full, r_full) =
+    //     binary_split_work_stealing(1, iters, &sieve, &pool);
 
-    let q = q_full.num;
-    let mut r = r_full.num;
+    let (_, q, mut r) = binary_split(1, iters, &pool);
+
+    // let q = q_full.num;
+    // let mut r = r_full.num;
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
@@ -319,4 +321,11 @@ fn main() {
     );
 
     println!();
+
+    let start = std::time::Instant::now();
+    unsafe {
+        let mut tmp_pi = iron_pi::util::new_arb();
+        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
+    }
+    println!("Elapsed: {:?}", start.elapsed());
 }
