@@ -1,12 +1,9 @@
-use std::{
-    io::Write,
-    ops::{AddAssign, MulAssign},
-};
+use std::io::Write;
 
 use clap::Parser;
 use colored::Colorize;
 use iron_pi::{bsplit::binary_split_work_stealing, fact::PrimeFactorSieve};
-use rug::{Float, Integer};
+use rayon::prelude::*;
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
 const DIGITS_PER_ITER: f64 = 14.181647462725478;
@@ -16,7 +13,7 @@ const DIGITS_PER_ITER: f64 = 14.181647462725478;
 struct Args {
     /// Number of digits to calculate
     #[clap(short, long, default_value_t = 1000)]
-    digits: usize,
+    digits: u64,
 
     /// File to write the result to
     #[clap(short, long, default_value = "pi.txt")]
@@ -38,9 +35,9 @@ struct Args {
     threads: usize,
 }
 
-fn format_with_commas(num: usize) -> String {
+fn format_with_commas(num: u64) -> String {
     let mut s = num.to_string();
-    let mut i = s.len() as isize - 3;
+    let mut i = s.len() as i64 - 3;
     while i > 0 {
         s.insert(i as usize, ',');
         i -= 3;
@@ -62,7 +59,7 @@ fn main() {
 
     // let prec = (digits as f64 * BITS_PER_DIGIT) as u32 + 16;
     let prec = (digits as f64 * BITS_PER_DIGIT) as u64 + 16;
-    let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as usize + 16;
+    let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as u64 + 16;
     let max_depth = iters.ilog2();
 
     unsafe {
@@ -92,7 +89,7 @@ fn main() {
     println!(
         "{} {}",
         "Precision     : ".green(),
-        format!("{} bits", format_with_commas(prec as usize)).cyan().bold()
+        format!("{} bits", format_with_commas(prec)).cyan().bold()
     );
 
     println!(
@@ -104,13 +101,13 @@ fn main() {
     println!(
         "{} {}",
         "Max depth     : ".green(),
-        format_with_commas(max_depth as usize).cyan().bold()
+        format_with_commas(max_depth as u64).cyan().bold()
     );
 
     println!(
         "{} {}",
         "Threads       : ".green(),
-        format_with_commas(threads).cyan().bold()
+        format_with_commas(threads as u64).cyan().bold()
     );
 
     println!();
@@ -133,11 +130,15 @@ fn main() {
         .build()
         .expect("Failed to build pool");
 
+    unsafe {
+        flint3_sys::flint_set_num_threads(threads as i32);
+    }
+
     let (_, q_full, r_full) =
         binary_split_work_stealing(1, iters, &sieve, &pool);
 
     let q = q_full.num;
-    let r = r_full.num;
+    let mut r = r_full.num;
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
@@ -145,14 +146,22 @@ fn main() {
     print!("{}", "Calculating numerator...   ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let mut num = Integer::from(426880);
-    num.mul_assign(&q);
+    // let mut num = Integer::from(426880);
+
+    let mut num = iron_pi::util::new_fmpz_with(426_880);
+
+    // num.mul_assign(&q);
+    unsafe {
+        flint3_sys::fmpz_mul(&mut num[0], &num[0], &q[0]);
+    }
+
     let end = std::time::Instant::now();
     print!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!(
         "\t {} {}",
         format_with_commas(unsafe {
-            gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10)
+            // gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10)
+            flint3_sys::fmpz_sizeinbase(&num[0], 10) as u64
         })
         .truecolor(255, 47, 106)
         .bold(),
@@ -162,15 +171,24 @@ fn main() {
     print!("{}", "Calculating denominator... ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let mut den = Integer::from(13591409);
-    den.mul_assign(q);
-    den.add_assign(r);
+
+    // den = 13591409 * q + r = r + q * 13591409
+    // let mut den = Integer::from(13591409);
+    // den.mul_assign(q);
+    // den.add_assign(r);
+
+    // let mut den = iron_pi::util::new_fmpz_with(13_591_409);
+    unsafe {
+        flint3_sys::fmpz_addmul_ui(&mut r[0], &q[0], 13_591_409);
+    }
+
     let end = std::time::Instant::now();
     print!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!(
         "\t {} {}",
         format_with_commas(unsafe {
-            gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10)
+            // gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10)
+            flint3_sys::fmpz_sizeinbase(&r[0], 10) as u64
         })
         .truecolor(255, 47, 106)
         .bold(),
@@ -181,20 +199,27 @@ fn main() {
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
 
-    let num = Float::with_val_64(prec, num);
-    let den = Float::with_val_64(prec, den);
+    // let num = Float::with_val_64(prec, num);
+    // let den = Float::with_val_64(prec, den);
+    // let num = iron_pi::util::new_arb_with_fmpz(&num);
+    // let den = iron_pi::util::new_arb_with_fmpz(&r);
 
-    if num.is_infinite() || num.is_nan() {
-        println!("{}", "Numerator is 'infinite' or 'NaN'.".red().bold());
-        return;
+    // if num.is_infinite() || num.is_nan() {
+    //     println!("{}", "Numerator is 'infinite' or 'NaN'.".red().bold());
+    //     return;
+    // }
+
+    // if den.is_infinite() || den.is_nan() {
+    //     println!("{}", "Denominator is 'infinite' or 'NaN'.".red().bold());
+    //     return;
+    // }
+
+    // let div = num / den;
+
+    let mut div = iron_pi::util::new_arb();
+    unsafe {
+        flint3_sys::arb_fmpz_div_fmpz(&mut div[0], &num[0], &r[0], prec as i64);
     }
-
-    if den.is_infinite() || den.is_nan() {
-        println!("{}", "Denominator is 'infinite' or 'NaN'.".red().bold());
-        return;
-    }
-
-    let div = num / den;
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
@@ -202,14 +227,27 @@ fn main() {
     print!("{}", "Square root...             ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let sqrt = Float::with_val_64(prec, 10005).sqrt();
+
+    // let sqrt = Float::with_val_64(prec, 10005).sqrt();
+
+    let mut sqrt = iron_pi::util::new_arb();
+
+    unsafe {
+        flint3_sys::arb_sqrt_ui(&mut sqrt[0], 10_005, prec as i64);
+    }
+
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Final multiplication...    ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
-    let pi = div * sqrt;
+
+    // let pi = div * sqrt;
+    unsafe {
+        flint3_sys::arb_mul(&mut div[0], &div[0], &sqrt[0], prec as i64);
+    }
+
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!();
@@ -219,12 +257,22 @@ fn main() {
     let start = std::time::Instant::now();
 
     let base_digits = (digits as f64 / (base as f64).log10()).round() as usize;
-    let pi_bytes: Vec<u8> = pi
-        .to_string_radix(base, Some(base_digits + 1))
-        .into_bytes()
-        .into_iter()
-        .skip(2)
-        .collect();
+
+    // let pi_bytes: Vec<u8> = pi
+    //     .to_string_radix(base, Some(base_digits + 1))
+    //     .into_bytes()
+    //     .into_iter()
+    //     .skip(2)
+    //     .collect();
+
+    let pi_bytes = unsafe {
+        let bytes = flint3_sys::arb_get_str(&div[0], base_digits as i64 + 1, 2);
+        &&std::ffi::CStr::from_ptr(bytes)
+            .to_str()
+            .expect("Failed to convert to string")
+            .as_bytes()[2..]
+    };
+
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
@@ -233,9 +281,9 @@ fn main() {
     let start = std::time::Instant::now();
 
     let formatted_pi: Vec<u8> = pi_bytes
-        .into_iter()
+        .par_iter()
         .enumerate()
-        .flat_map(|(pos, c)| {
+        .flat_map(|(pos, &c)| {
             if pos % (block_size * num_blocks) == 0 {
                 // Start of a new line
                 vec![b'\n', b' ', b' ', c]
@@ -247,7 +295,6 @@ fn main() {
                 vec![c]
             }
         })
-        .skip(1) // Skip the initial newline
         .collect();
 
     let end = std::time::Instant::now();
