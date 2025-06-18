@@ -44,23 +44,6 @@ fn binary_split_2(
     }
 }
 
-pub fn binary_split(
-    a: u64,
-    b: u64,
-) -> (flint3_sys::fmpz_t, flint3_sys::fmpz_t, flint3_sys::fmpz_t) {
-    unsafe {
-        let mut q_partial = util::new_fmpz_with(640320);
-        flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320);
-        flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320 / 24);
-
-        let res = binary_split_2(a, b, &q_partial);
-
-        flint3_sys::fmpz_clear(&mut q_partial[0]);
-
-        res
-    }
-}
-
 pub struct SharedArb(flint3_sys::arb_t);
 
 unsafe impl Send for SharedArb {}
@@ -76,28 +59,7 @@ fn binary_split_2_arb(
     prec: i64,
 ) -> (SharedArb, SharedArb, SharedArb) {
     unsafe {
-        if b - a < 8 {
-            // // P(a, a + 1) = -(6a - 1)(6a - 5)(2a - 1)
-            // let mut p = util::new_arb_with_u64(6 * a - 1);
-            // flint3_sys::arb_mul_ui(&mut p[0], &p[0], 6 * a - 5, prec);
-            // flint3_sys::arb_mul_ui(&mut p[0], &p[0], 2 * a - 1, prec);
-            // flint3_sys::arb_neg(&mut p[0], &p[0]);
-            //
-            // // Q(a, a + 1) = a^3 * 640320^3 / 24
-            // let mut q = util::new_arb_with_u64(a * a); // Safe for digits <
-            // 2e+20 flint3_sys::arb_mul(&mut q[0], &q[0],
-            // &q_partial.0[0], prec); flint3_sys::arb_mul_ui(&mut
-            // q[0], &q[0], a, prec);
-            //
-            // // R(a, a + 1) = P(a, a + 1) * (545140134 * a + 13591409)
-            // let mut r = util::new_arb_with_u64(545_140_134);
-            // flint3_sys::arb_mul_ui(&mut r[0], &r[0], a, prec);
-            // flint3_sys::arb_add_ui(&mut r[0], &r[0], 13_591_409, prec);
-            // flint3_sys::arb_mul(&mut r[0], &r[0], &p[0], prec);
-            //
-            // // (p, q, r)
-            // (SharedArb(p), SharedArb(q), SharedArb(r))
-
+        if b - a < 4 {
             let mut p = util::new_arb();
             let mut q = util::new_arb();
             let mut r = util::new_arb();
