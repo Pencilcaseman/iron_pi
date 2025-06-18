@@ -1,9 +1,9 @@
+use std::cmp::max;
+
 use crate::{
     fact::{PrimeFactorSieve, PrimeFactors},
     util,
 };
-
-const PAR_THRESHOLD: u64 = 8192;
 
 #[derive(Debug)]
 pub struct NumFac {
@@ -114,6 +114,8 @@ pub fn binary_split_2(
     b: u64,
     q_partial: &flint3_sys::fmpz_t,
     thread_pool: &rayon::ThreadPool,
+    depth: usize,
+    max_par_depth: usize,
 ) -> (flint3_sys::fmpz_t, flint3_sys::fmpz_t, flint3_sys::fmpz_t) {
     unsafe {
         if b - a == 1 {
@@ -139,15 +141,47 @@ pub fn binary_split_2(
             let mid = (a + b) / 2;
 
             let ((mut p1, mut q1, mut r1), (mut p2, mut q2, mut r2)) =
-                if b - a < PAR_THRESHOLD {
-                    (
-                        binary_split_2(a, mid, q_partial, thread_pool),
-                        binary_split_2(mid, b, q_partial, thread_pool),
+                if depth <= max_par_depth {
+                    thread_pool.join(
+                        || {
+                            binary_split_2(
+                                a,
+                                mid,
+                                q_partial,
+                                thread_pool,
+                                depth + 1,
+                                max_par_depth,
+                            )
+                        },
+                        || {
+                            binary_split_2(
+                                mid,
+                                b,
+                                q_partial,
+                                thread_pool,
+                                depth + 1,
+                                max_par_depth,
+                            )
+                        },
                     )
                 } else {
-                    thread_pool.join(
-                        || binary_split_2(a, mid, q_partial, thread_pool),
-                        || binary_split_2(mid, b, q_partial, thread_pool),
+                    (
+                        binary_split_2(
+                            a,
+                            mid,
+                            q_partial,
+                            thread_pool,
+                            depth + 1,
+                            max_par_depth,
+                        ),
+                        binary_split_2(
+                            mid,
+                            b,
+                            q_partial,
+                            thread_pool,
+                            depth + 1,
+                            max_par_depth,
+                        ),
                     )
                 };
 
@@ -168,13 +202,15 @@ pub fn binary_split(
     a: u64,
     b: u64,
     thread_pool: &rayon::ThreadPool,
+    max_par_depth: usize,
 ) -> (flint3_sys::fmpz_t, flint3_sys::fmpz_t, flint3_sys::fmpz_t) {
     unsafe {
         let mut q_partial = util::new_fmpz_with(640320);
         flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320);
         flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320 / 24);
 
-        let res = binary_split_2(a, b, &q_partial, thread_pool);
+        let res =
+            binary_split_2(a, b, &q_partial, thread_pool, 0, max_par_depth);
 
         flint3_sys::fmpz_clear(&mut q_partial[0]);
 

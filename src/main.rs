@@ -15,6 +15,9 @@ struct Args {
     #[clap(short, long, default_value_t = 1000)]
     digits: u64,
 
+    #[clap(short, long, default_value_t = 0)]
+    max_parallel_depth: usize,
+
     /// File to write the result to
     #[clap(short, long, default_value = "pi.txt")]
     out_file: String,
@@ -46,10 +49,17 @@ fn format_with_commas(num: u64) -> String {
 }
 
 fn main() {
-    println!("{}", "========== IronPI ==========".red().bold());
+    println!("{}", "============== IronPI ==============".red().bold());
 
-    let Args { digits, out_file, mut base, block_size, num_blocks, threads } =
-        Args::parse();
+    let Args {
+        digits,
+        mut max_parallel_depth,
+        out_file,
+        mut base,
+        block_size,
+        num_blocks,
+        threads,
+    } = Args::parse();
 
     // Set the number of threads
     rayon::ThreadPoolBuilder::new()
@@ -61,6 +71,10 @@ fn main() {
     let prec = (digits as f64 * BITS_PER_DIGIT) as u64 + 16;
     let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as u64 + 16;
     let max_depth = iters.ilog2();
+
+    if max_parallel_depth == 0 {
+        max_parallel_depth = (threads.ilog2() + 1) as usize;
+    }
 
     unsafe {
         // We need the most precision possible with MPFR. Without this,
@@ -82,44 +96,43 @@ fn main() {
 
     println!(
         "{} {}",
-        "Digits        : ".green(),
+        "Digits          : ".green(),
         format_with_commas(digits).cyan().bold(),
     );
 
     println!(
         "{} {}",
-        "Precision     : ".green(),
+        "Precision       : ".green(),
         format!("{} bits", format_with_commas(prec)).cyan().bold()
     );
 
     println!(
         "{} {}",
-        "Iterations    : ".green(),
+        "Iterations      : ".green(),
         format_with_commas(iters).cyan().bold()
     );
 
     println!(
         "{} {}",
-        "Max depth     : ".green(),
+        "Max depth       : ".green(),
         format_with_commas(max_depth as u64).cyan().bold()
     );
 
     println!(
         "{} {}",
-        "Threads       : ".green(),
+        "Parallel depth  : ".green(),
+        format_with_commas(max_parallel_depth as u64).cyan().bold()
+    );
+
+    println!(
+        "{} {}",
+        "Threads         : ".green(),
         format_with_commas(threads as u64).cyan().bold()
     );
 
     println!();
 
     let global_start = std::time::Instant::now();
-
-    print!("{}", "Generating factor sieve... ".green());
-    std::io::stdout().flush().unwrap();
-    let start = std::time::Instant::now();
-    let sieve = PrimeFactorSieve::new((3 * 5 * 23 * 29 + 1).max(6 * iters));
-    let end = std::time::Instant::now();
-    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
     print!("{}", "Binary splitting...        ".green());
     std::io::stdout().flush().unwrap();
@@ -137,7 +150,7 @@ fn main() {
     // let (_, q_full, r_full) =
     //     binary_split_work_stealing(1, iters, &sieve, &pool);
 
-    let (_, q, mut r) = binary_split(1, iters, &pool);
+    let (_, q, mut r) = binary_split(1, iters, &pool, max_parallel_depth);
 
     // let q = q_full.num;
     // let mut r = r_full.num;
@@ -254,9 +267,15 @@ fn main() {
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
     println!();
 
+    println!(
+        "{} {}\n",
+        "Calculated pi in".green(),
+        format!("{:?}", global_start.elapsed()).cyan()
+    );
+
     print!("{}", "Converting to string...    ".green());
     std::io::stdout().flush().unwrap();
-    let start = std::time::Instant::now();
+    let str_start = std::time::Instant::now();
 
     let base_digits = (digits as f64 / (base as f64).log10()).round() as usize;
 
@@ -276,42 +295,91 @@ fn main() {
     };
 
     let end = std::time::Instant::now();
-    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+    println!(
+        "{} {}",
+        "Done in".green(),
+        format!("{:?}", end - str_start).cyan()
+    );
 
-    print!("{}", "Formatting string...       ".green());
+    // print!("{}", "Formatting string...       ".green());
+    // std::io::stdout().flush().unwrap();
+    // let start = std::time::Instant::now();
+    //
+    // let formatted_pi: Vec<u8> = pi_bytes
+    //     .par_iter()
+    //     .enumerate()
+    //     .flat_map(|(pos, &c)| {
+    //         if pos % (block_size * num_blocks) == 0 {
+    //             // Start of a new line
+    //             vec![b'\n', b' ', b' ', c]
+    //         } else if pos % block_size == 0 {
+    //             // Start of a new block (but not a new line)
+    //             vec![b' ', c]
+    //         } else {
+    //             // Regular digit
+    //             vec![c]
+    //         }
+    //     })
+    //     .collect();
+    //
+    // let end = std::time::Instant::now();
+    // println!("{} {}", "Done in".green(), format!("{:?}", end -
+    // start).cyan());
+    //
+    // print!("{}", "Writing to file...         ".green());
+    // std::io::stdout().flush().unwrap();
+    // let start = std::time::Instant::now();
+    // let mut file = std::fs::File::create(out_file).unwrap();
+    // file.write_all(b"3.\n").unwrap();
+    // file.write_all(&formatted_pi).unwrap();
+    // let end = std::time::Instant::now();
+    // println!("{} {}", "Done in".green(), format!("{:?}", end -
+    // start).cyan());
+
+    // ========================================================================
+    // ========================================================================
+    // ========================================================================
+
+    print!("{}", "Writing string...          ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
 
-    let formatted_pi: Vec<u8> = pi_bytes
-        .par_iter()
-        .enumerate()
-        .flat_map(|(pos, &c)| {
-            if pos % (block_size * num_blocks) == 0 {
-                // Start of a new line
-                vec![b'\n', b' ', b' ', c]
-            } else if pos % block_size == 0 {
-                // Start of a new block (but not a new line)
-                vec![b' ', c]
-            } else {
-                // Regular digit
-                vec![c]
-            }
-        })
-        .collect();
+    let file = std::fs::File::create(out_file).expect("Failed to create file");
+    let mut writer = std::io::BufWriter::new(file);
 
-    let end = std::time::Instant::now();
-    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+    writer.write_all(b"3.").expect("Failed to write prefix");
 
-    print!("{}", "Writing to file...         ".green());
-    std::io::stdout().flush().unwrap();
-    let start = std::time::Instant::now();
-    let mut file = std::fs::File::create(out_file).unwrap();
-    file.write_all(b"3.\n").unwrap();
-    file.write_all(&formatted_pi).unwrap();
-    let end = std::time::Instant::now();
-    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+    pi_bytes.iter().enumerate().for_each(|(pos, &c)| {
+        let result = if pos % (block_size * num_blocks) == 0 {
+            writer.write_all(b"\n  ")
+        } else if pos % block_size == 0 {
+            writer.write_all(b" ")
+        } else {
+            Ok(())
+        };
 
-    println!();
+        result
+            .and_then(|_| writer.write_all(&[c]))
+            .expect("Failed to write to file");
+    });
+
+    writer.flush().expect("Failed to flush writer");
+
+    println!(
+        "{} {}",
+        "Done in".green(),
+        format!("{:?}", start.elapsed()).cyan()
+    );
+
+    // ========================================================================
+    // ========================================================================
+    // ========================================================================
+
+    println!(
+        "\n{} {}\n",
+        "IO completed in".green(),
+        format!("{:?}", str_start.elapsed()).cyan()
+    );
 
     let global_end = std::time::Instant::now();
     println!(
