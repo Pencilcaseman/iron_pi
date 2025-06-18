@@ -140,13 +140,13 @@ fn main() {
         flint3_sys::flint_set_num_threads(threads as i32);
     }
 
-    unsafe {
-        let start = std::time::Instant::now();
-        let mut tmp_pi = iron_pi::util::new_arb();
-        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
-        println!("Elapsed: {:?}\n", start.elapsed());
-        flint3_sys::arb_clear(&mut tmp_pi[0]);
-    }
+    // unsafe {
+    //     let start = std::time::Instant::now();
+    //     let mut tmp_pi = iron_pi::util::new_arb();
+    //     flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
+    //     println!("Elapsed: {:?}\n", start.elapsed());
+    //     flint3_sys::arb_clear(&mut tmp_pi[0]);
+    // }
 
     let global_start = std::time::Instant::now();
 
