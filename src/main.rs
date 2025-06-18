@@ -2,8 +2,7 @@ use std::io::Write;
 
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::{bsplit::binary_split, fact::PrimeFactorSieve};
-use rayon::prelude::*;
+use iron_pi::bsplit::{binary_split, binary_split_arb};
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
 const DIGITS_PER_ITER: f64 = 14.181647462725478;
@@ -132,12 +131,6 @@ fn main() {
 
     println!();
 
-    let global_start = std::time::Instant::now();
-
-    print!("{}", "Binary splitting...        ".green());
-    std::io::stdout().flush().unwrap();
-    let start = std::time::Instant::now();
-
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()
@@ -147,10 +140,27 @@ fn main() {
         flint3_sys::flint_set_num_threads(threads as i32);
     }
 
+    unsafe {
+        let start = std::time::Instant::now();
+        let mut tmp_pi = iron_pi::util::new_arb();
+        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
+        println!("Elapsed: {:?}\n", start.elapsed());
+        flint3_sys::arb_clear(&mut tmp_pi[0]);
+    }
+
+    let global_start = std::time::Instant::now();
+
+    print!("{}", "Binary splitting...        ".green());
+    std::io::stdout().flush().unwrap();
+    let start = std::time::Instant::now();
+
     // let (_, q_full, r_full) =
     //     binary_split_work_stealing(1, iters, &sieve, &pool);
 
-    let (_, q, mut r) = binary_split(1, iters, &pool, max_parallel_depth);
+    // let (_, q, mut r) = binary_split(1, iters, &pool, max_parallel_depth);
+
+    let (_, q, mut r) =
+        binary_split_arb(1, iters, &pool, max_parallel_depth, prec as i64);
 
     // let q = q_full.num;
     // let mut r = r_full.num;
@@ -163,25 +173,28 @@ fn main() {
     let start = std::time::Instant::now();
     // let mut num = Integer::from(426880);
 
-    let mut num = iron_pi::util::new_fmpz_with(426_880);
+    let mut num = iron_pi::util::new_arb_with_u64(426_880);
 
     // num.mul_assign(&q);
     unsafe {
-        flint3_sys::fmpz_mul(&mut num[0], &num[0], &q[0]);
+        // flint3_sys::fmpz_mul(&mut num[0], &num[0], &q[0]);
+
+        flint3_sys::arb_mul(&mut num[0], &num[0], &q[0], prec as i64);
     }
 
     let end = std::time::Instant::now();
-    print!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
-    println!(
-        "\t {} {}",
-        format_with_commas(unsafe {
-            // gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10)
-            flint3_sys::fmpz_sizeinbase(&num[0], 10) as u64
-        })
-        .truecolor(255, 47, 106)
-        .bold(),
-        "digits".truecolor(255, 47, 106),
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+
+    // println!(
+    //     "\t {} {}",
+    //     format_with_commas(unsafe {
+    //         // gmp_mpfr_sys::gmp::mpz_sizeinbase(num.as_raw(), 10)
+    //         flint3_sys::fmpz_sizeinbase(&num[0], 10) as u64
+    //     })
+    //     .truecolor(255, 47, 106)
+    //     .bold(),
+    //     "digits".truecolor(255, 47, 106),
+    // );
 
     print!("{}", "Calculating denominator... ".green());
     std::io::stdout().flush().unwrap();
@@ -194,21 +207,24 @@ fn main() {
 
     // let mut den = iron_pi::util::new_fmpz_with(13_591_409);
     unsafe {
-        flint3_sys::fmpz_addmul_ui(&mut r[0], &q[0], 13_591_409);
+        // flint3_sys::fmpz_addmul_ui(&mut r[0], &q[0], 13_591_409);
+
+        flint3_sys::arb_addmul_ui(&mut r[0], &q[0], 13_591_409, prec as i64);
     }
 
     let end = std::time::Instant::now();
-    print!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
-    println!(
-        "\t {} {}",
-        format_with_commas(unsafe {
-            // gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10)
-            flint3_sys::fmpz_sizeinbase(&r[0], 10) as u64
-        })
-        .truecolor(255, 47, 106)
-        .bold(),
-        "digits".truecolor(255, 47, 106),
-    );
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+
+    // println!(
+    //     "\t {} {}",
+    //     format_with_commas(unsafe {
+    //         // gmp_mpfr_sys::gmp::mpz_sizeinbase(den.as_raw(), 10)
+    //         flint3_sys::fmpz_sizeinbase(&r[0], 10) as u64
+    //     })
+    //     .truecolor(255, 47, 106)
+    //     .bold(),
+    //     "digits".truecolor(255, 47, 106),
+    // );
 
     print!("{}", "Dividing...                ".green());
     std::io::stdout().flush().unwrap();
@@ -233,7 +249,10 @@ fn main() {
 
     let mut div = iron_pi::util::new_arb();
     unsafe {
-        flint3_sys::arb_fmpz_div_fmpz(&mut div[0], &num[0], &r[0], prec as i64);
+        // flint3_sys::arb_fmpz_div_fmpz(&mut div[0], &num[0], &r[0], prec as
+        // i64);
+
+        flint3_sys::arb_div(&mut div[0], &num[0], &r[0], prec as i64);
     }
 
     let end = std::time::Instant::now();
@@ -387,13 +406,4 @@ fn main() {
         "Total time: ".green(),
         format!("{:?}", global_end - global_start).cyan()
     );
-
-    println!();
-
-    let start = std::time::Instant::now();
-    unsafe {
-        let mut tmp_pi = iron_pi::util::new_arb();
-        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
-    }
-    println!("Elapsed: {:?}", start.elapsed());
 }
