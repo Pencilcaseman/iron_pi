@@ -3,43 +3,51 @@ use crate::util;
 fn binary_split_2(
     a: u64,
     b: u64,
+    p: &mut flint3_sys::fmpz_t,
+    q: &mut flint3_sys::fmpz_t,
+    r: &mut flint3_sys::fmpz_t,
     q_partial: &flint3_sys::fmpz_t,
-) -> (flint3_sys::fmpz_t, flint3_sys::fmpz_t, flint3_sys::fmpz_t) {
+) {
     unsafe {
         if b - a == 1 {
             // P(a, a + 1) = -(6a - 1)(6a - 5)(2a - 1)
-            let mut p = util::new_fmpz_with(6 * a - 1);
+            flint3_sys::fmpz_set_ui(&mut p[0], 6 * a - 1);
             flint3_sys::fmpz_mul_ui(&mut p[0], &p[0], 6 * a - 5);
             flint3_sys::fmpz_mul_ui(&mut p[0], &p[0], 2 * a - 1);
             flint3_sys::fmpz_neg(&mut p[0], &p[0]);
 
             // Q(a, a + 1) = a^3 * 640320^3 / 24
-            let mut q = util::new_fmpz_with(a * a); // Safe for digits < 2e+20
+            flint3_sys::fmpz_set_ui(&mut q[0], a * a); // Safe for digits < 2e+20
             flint3_sys::fmpz_mul(&mut q[0], &q[0], &q_partial[0]);
             flint3_sys::fmpz_mul_ui(&mut q[0], &q[0], a);
 
             // R(a, a + 1) = P(a, a + 1) * (545140134 * a + 13591409)
-            let mut r = util::new_fmpz_with(545_140_134);
+            flint3_sys::fmpz_set_ui(&mut r[0], 545_140_134);
             flint3_sys::fmpz_mul_ui(&mut r[0], &r[0], a);
             flint3_sys::fmpz_add_ui(&mut r[0], &r[0], 13_591_409);
             flint3_sys::fmpz_mul(&mut r[0], &r[0], &p[0]);
-
-            (p, q, r)
         } else {
             let mid = (a + b) / 2;
 
-            let (mut p1, mut q1, mut r1) = binary_split_2(a, mid, q_partial);
-            let (mut p2, mut q2, mut r2) = binary_split_2(mid, b, q_partial);
+            let mut p2 = util::new_fmpz();
+            let mut q2 = util::new_fmpz();
+            let mut r2 = util::new_fmpz();
 
-            flint3_sys::fmpz_mul(&mut p2[0], &p1[0], &p2[0]);
-            flint3_sys::fmpz_mul(&mut q1[0], &q1[0], &q2[0]);
-            flint3_sys::fmpz_fmma(&mut r2[0], &q2[0], &r1[0], &p1[0], &r2[0]);
+            binary_split_2(a, mid, p, q, r, q_partial);
+            binary_split_2(mid, b, &mut p2, &mut q2, &mut r2, q_partial);
 
-            flint3_sys::fmpz_clear(&mut p1[0]);
+            // R(a, b) = R(a, m) * Q(m, b) + P(a, m) * R(m, b)
+            flint3_sys::fmpz_fmma(&mut r[0], &q2[0], &r[0], &p[0], &r2[0]);
+
+            // Q(a, b) = Q(a, m) * Q(m, b)
+            flint3_sys::fmpz_mul(&mut q[0], &q[0], &q2[0]);
+
+            // P(a, b) = P(a, m) * P(m, b)
+            flint3_sys::fmpz_mul(&mut p[0], &p[0], &p2[0]);
+
+            flint3_sys::fmpz_clear(&mut p2[0]);
             flint3_sys::fmpz_clear(&mut q2[0]);
-            flint3_sys::fmpz_clear(&mut r1[0]);
-
-            (p2, q1, r2)
+            flint3_sys::fmpz_clear(&mut r2[0]);
         }
     }
 }
@@ -64,8 +72,18 @@ fn binary_split_2_arb(
 ) {
     unsafe {
         if b - a < 4 {
-            let (mut p_tmp, mut q_tmp, mut r_tmp) =
-                binary_split_2(a, b, q_partial_fmpz);
+            let mut p_tmp = util::new_fmpz();
+            let mut q_tmp = util::new_fmpz();
+            let mut r_tmp = util::new_fmpz();
+
+            binary_split_2(
+                a,
+                b,
+                &mut p_tmp,
+                &mut q_tmp,
+                &mut r_tmp,
+                q_partial_fmpz,
+            );
 
             flint3_sys::arb_set_fmpz(&mut p.0[0], &p_tmp[0]);
             flint3_sys::arb_set_fmpz(&mut q.0[0], &q_tmp[0]);
@@ -154,11 +172,13 @@ fn binary_split_2_arb(
             flint3_sys::arb_mul(&mut r.0[0], &r.0[0], &q2.0[0], prec);
             flint3_sys::arb_addmul(&mut r.0[0], &p.0[0], &r2.0[0], prec);
 
-            // P(a, b) = P(a, m) * P(m, b)
-            flint3_sys::arb_mul(&mut p.0[0], &p.0[0], &p2.0[0], prec);
-
             // Q(a, b) = Q(a, m) * Q(m, b)
             flint3_sys::arb_mul(&mut q.0[0], &q.0[0], &q2.0[0], prec);
+
+            if depth > 0 {
+                // P(a, b) = P(a, m) * P(m, b)
+                flint3_sys::arb_mul(&mut p.0[0], &p.0[0], &p2.0[0], prec);
+            }
 
             // Cleanup
             flint3_sys::arb_clear(&mut p2.0[0]);
