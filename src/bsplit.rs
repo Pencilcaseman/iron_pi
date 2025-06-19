@@ -49,106 +49,121 @@ pub struct SharedArb(flint3_sys::arb_t);
 unsafe impl Send for SharedArb {}
 unsafe impl Sync for SharedArb {}
 
+#[allow(clippy::too_many_arguments)]
 fn binary_split_2_arb(
     a: u64,
     b: u64,
+    p: &mut SharedArb,
+    q: &mut SharedArb,
+    r: &mut SharedArb,
     q_partial_fmpz: &flint3_sys::fmpz_t,
     thread_pool: &rayon::ThreadPool,
     depth: usize,
     max_par_depth: usize,
     prec: i64,
-) -> (SharedArb, SharedArb, SharedArb) {
+) {
     unsafe {
         if b - a < 4 {
-            let mut p = util::new_arb();
-            let mut q = util::new_arb();
-            let mut r = util::new_arb();
-
             let (mut p_tmp, mut q_tmp, mut r_tmp) =
                 binary_split_2(a, b, q_partial_fmpz);
 
-            flint3_sys::arb_set_fmpz(&mut p[0], &p_tmp[0]);
-            flint3_sys::arb_set_fmpz(&mut q[0], &q_tmp[0]);
-            flint3_sys::arb_set_fmpz(&mut r[0], &r_tmp[0]);
+            flint3_sys::arb_set_fmpz(&mut p.0[0], &p_tmp[0]);
+            flint3_sys::arb_set_fmpz(&mut q.0[0], &q_tmp[0]);
+            flint3_sys::arb_set_fmpz(&mut r.0[0], &r_tmp[0]);
 
             flint3_sys::fmpz_clear(&mut p_tmp[0]);
             flint3_sys::fmpz_clear(&mut q_tmp[0]);
             flint3_sys::fmpz_clear(&mut r_tmp[0]);
-
-            (SharedArb(p), SharedArb(q), SharedArb(r))
         } else {
             let mid = (a + b) / 2;
 
-            let ((mut p1, mut q1, mut r1), (mut p2, mut q2, mut r2)) =
-                if depth <= max_par_depth {
-                    thread_pool.join(
-                        || {
-                            binary_split_2_arb(
-                                a,
-                                mid,
-                                q_partial_fmpz,
-                                thread_pool,
-                                depth + 1,
-                                max_par_depth,
-                                prec,
-                            )
-                        },
-                        || {
-                            binary_split_2_arb(
-                                mid,
-                                b,
-                                q_partial_fmpz,
-                                thread_pool,
-                                depth + 1,
-                                max_par_depth,
-                                prec,
-                            )
-                        },
-                    )
-                } else {
-                    (
+            let mut p2 = SharedArb(util::new_arb());
+            let mut q2 = SharedArb(util::new_arb());
+            let mut r2 = SharedArb(util::new_arb());
+
+            if depth <= max_par_depth {
+                thread_pool.join(
+                    || {
                         binary_split_2_arb(
                             a,
                             mid,
+                            p,
+                            q,
+                            r,
                             q_partial_fmpz,
                             thread_pool,
                             depth + 1,
                             max_par_depth,
                             prec,
-                        ),
+                        )
+                    },
+                    || {
                         binary_split_2_arb(
                             mid,
                             b,
+                            &mut p2,
+                            &mut q2,
+                            &mut r2,
                             q_partial_fmpz,
                             thread_pool,
                             depth + 1,
                             max_par_depth,
                             prec,
-                        ),
-                    )
-                };
+                        )
+                    },
+                )
+            } else {
+                (
+                    binary_split_2_arb(
+                        a,
+                        mid,
+                        p,
+                        q,
+                        r,
+                        q_partial_fmpz,
+                        thread_pool,
+                        depth + 1,
+                        max_par_depth,
+                        prec,
+                    ),
+                    binary_split_2_arb(
+                        mid,
+                        b,
+                        &mut p2,
+                        &mut q2,
+                        &mut r2,
+                        q_partial_fmpz,
+                        thread_pool,
+                        depth + 1,
+                        max_par_depth,
+                        prec,
+                    ),
+                )
+            };
 
-            flint3_sys::arb_mul(&mut p2.0[0], &p1.0[0], &p2.0[0], prec);
-            flint3_sys::arb_mul(&mut q1.0[0], &q1.0[0], &q2.0[0], prec);
+            //              p         p2
+            // P(a, b) = P(a, m) * P(m, b)
+            //
+            //              q         q2
+            // Q(a, b) = Q(a, m) * Q(m, b)
+            //
+            //              q2        r         p         r2
+            // R(a, b) = Q(m, b) * R(a, m) + P(a, m) * R(m, b)
 
-            let mut temp1 = util::new_arb();
-            let mut temp2 = util::new_arb();
+            // R(a, b) = Q(m, b) * R(a, m) + P(a, m) * R(m, b)
+            flint3_sys::arb_mul(&mut r.0[0], &r.0[0], &q2.0[0], prec);
+            flint3_sys::arb_addmul(&mut r.0[0], &p.0[0], &r2.0[0], prec);
 
-            flint3_sys::arb_init(&mut temp1[0]);
-            flint3_sys::arb_init(&mut temp2[0]);
+            // P(a, b) = P(a, m) * P(m, b)
+            flint3_sys::arb_mul(&mut p.0[0], &p.0[0], &p2.0[0], prec);
 
-            flint3_sys::arb_mul(&mut temp1[0], &q2.0[0], &r1.0[0], prec);
-            flint3_sys::arb_mul(&mut temp2[0], &p1.0[0], &r2.0[0], prec);
-            flint3_sys::arb_add(&mut r2.0[0], &temp1[0], &temp2[0], prec);
+            // Q(a, b) = Q(a, m) * Q(m, b)
+            flint3_sys::arb_mul(&mut q.0[0], &q.0[0], &q2.0[0], prec);
 
-            flint3_sys::arb_clear(&mut temp1[0]);
-            flint3_sys::arb_clear(&mut temp2[0]);
-
-            flint3_sys::arb_clear(&mut p1.0[0]);
+            // Cleanup
+            flint3_sys::arb_clear(&mut p2.0[0]);
             flint3_sys::arb_clear(&mut q2.0[0]);
-            flint3_sys::arb_clear(&mut r1.0[0]);
-
-            (p2, q1, r2)
+            flint3_sys::arb_clear(&mut r2.0[0]);
         }
     }
 }
@@ -165,9 +180,16 @@ pub fn binary_split_arb(
         flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320);
         flint3_sys::fmpz_mul_ui(&mut q_partial[0], &q_partial[0], 640320 / 24);
 
-        let (SharedArb(p), SharedArb(q), SharedArb(r)) = binary_split_2_arb(
+        let mut p = SharedArb(util::new_arb());
+        let mut q = SharedArb(util::new_arb());
+        let mut r = SharedArb(util::new_arb());
+
+        binary_split_2_arb(
             a,
             b,
+            &mut p,
+            &mut q,
+            &mut r,
             &q_partial,
             thread_pool,
             0,
@@ -177,6 +199,6 @@ pub fn binary_split_arb(
 
         flint3_sys::fmpz_clear(&mut q_partial[0]);
 
-        (p, q, r)
+        (p.0, q.0, r.0)
     }
 }

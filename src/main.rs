@@ -2,7 +2,7 @@ use std::io::Write;
 
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::bsplit::{binary_split, binary_split_arb};
+use iron_pi::bsplit::binary_split_arb;
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
 const DIGITS_PER_ITER: f64 = 14.181647462725478;
