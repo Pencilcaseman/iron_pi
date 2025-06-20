@@ -1,8 +1,8 @@
-use std::io::Write;
+use std::{io::Write, num::NonZero, thread::available_parallelism};
 
 use clap::Parser;
 use colored::Colorize;
-use iron_pi::bsplit::binary_split_arb;
+use iron_pi::bsplit::binary_split;
 
 const BITS_PER_DIGIT: f64 = std::f64::consts::LOG2_10;
 const DIGITS_PER_ITER: f64 = 14.181647462725478;
@@ -47,6 +47,72 @@ fn format_with_commas(num: u64) -> String {
     s
 }
 
+// unsafe fn arb_const_pi_chudnovsky_eval(s: &mut flint3_sys::arb_t, prec: i64)
+// {     let mut series = iron_pi::util::new_hypgeom();
+//
+//     let mut t = iron_pi::util::new_arb();
+//     let mut u = iron_pi::util::new_arb();
+//
+//     flint3_sys::arb_init(&mut t[0]);
+//     flint3_sys::arb_init(&mut u[0]);
+//     flint3_sys::hypgeom_init(&mut series[0]);
+//
+//     flint3_sys::fmpz_poly_set_str(
+//         &mut series[0].A[0],
+//         std::ffi::CString::new("2  13591409 545140134").unwrap().as_ptr(),
+//     );
+//     flint3_sys::fmpz_poly_set_str(
+//         &mut series[0].B[0],
+//         std::ffi::CString::new("1  1").unwrap().as_ptr(),
+//     );
+//     flint3_sys::fmpz_poly_set_str(
+//         &mut series[0].P[0],
+//         std::ffi::CString::new("4  5 -46 108 -72").unwrap().as_ptr(),
+//     );
+//     flint3_sys::fmpz_poly_set_str(
+//         &mut series[0].Q[0],
+//         std::ffi::CString::new("4  0 0 0
+// 10939058860032000").unwrap().as_ptr(),     );
+//
+//     // prec += FLINT_CLOG2(prec) + 5;
+//     flint3_sys::arb_hypgeom_infsum(
+//         &mut s[0],
+//         &mut t[0],
+//         &mut series[0],
+//         prec,
+//         prec,
+//     );
+//
+//     let mut s_thing = iron_pi::util::new_arb();
+//     flint3_sys::arb_log_base_ui(&mut s_thing[0], &s[0], 10, 128);
+//     let s_string = std::ffi::CString::from_raw(flint3_sys::arb_get_str(
+//         &s_thing[0],
+//         prec,
+//         0,
+//     ));
+//
+//     let mut t_thing = iron_pi::util::new_arb();
+//     flint3_sys::arb_log_base_ui(&mut t_thing[0], &t[0], 10, 128);
+//     let t_string = std::ffi::CString::from_raw(flint3_sys::arb_get_str(
+//         &t_thing[0],
+//         prec,
+//         0,
+//     ));
+//
+//     println!("S THING: {s_string:?}");
+//     println!("T THING: {t_string:?}");
+//
+//     flint3_sys::arb_rsqrt_ui(&mut u[0], 640320, prec);
+//     flint3_sys::arb_mul(&mut s[0], &s[0], &u[0], prec);
+//
+//     flint3_sys::arb_mul_ui(&mut t[0], &t[0], 640320 / 12, prec);
+//     flint3_sys::arb_div(&mut s[0], &t[0], &s[0], prec);
+//
+//     flint3_sys::hypgeom_clear(&mut series[0]);
+//     flint3_sys::arb_clear(&mut t[0]);
+//     flint3_sys::arb_clear(&mut u[0]);
+// }
+
 fn main() {
     println!("{}", "============== IronPI ==============".red().bold());
 
@@ -57,7 +123,7 @@ fn main() {
         mut base,
         block_size,
         num_blocks,
-        threads,
+        mut threads,
     } = Args::parse();
 
     // Set the number of threads
@@ -67,8 +133,15 @@ fn main() {
         .unwrap();
 
     let prec = (digits as f64 * BITS_PER_DIGIT) as u64 + 16;
-    let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as u64 + 16;
+    // let iters = ((digits as f64) * 1.25 / DIGITS_PER_ITER) as u64 + 16;
+    let iters = ((digits as f64) / DIGITS_PER_ITER) as u64 + 16;
     let max_depth = iters.ilog2();
+
+    if threads == 0 {
+        threads = available_parallelism()
+            .unwrap_or(NonZero::new(1usize).unwrap())
+            .get();
+    }
 
     if max_parallel_depth == 0 {
         max_parallel_depth = (threads.ilog2() + 1) as usize;
@@ -131,13 +204,25 @@ fn main() {
         flint3_sys::flint_set_num_threads(threads as i32);
     }
 
-    // unsafe {
-    //     let start = std::time::Instant::now();
-    //     let mut tmp_pi = iron_pi::util::new_arb();
-    //     flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
-    //     println!("Elapsed: {:?}\n", start.elapsed());
-    //     flint3_sys::arb_clear(&mut tmp_pi[0]);
-    // }
+    unsafe {
+        let start = std::time::Instant::now();
+        let mut tmp_pi = iron_pi::util::new_arb();
+        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
+
+        // arb_const_pi_chudnovsky_eval(&mut tmp_pi, prec as i64);
+
+        println!("Elapsed: {:?}\n", start.elapsed());
+
+        // let string = std::ffi::CString::from_raw(flint3_sys::arb_get_str(
+        //     &tmp_pi[0],
+        //     prec as i64,
+        //     0,
+        // ));
+        //
+        // println!("Pi =~ {string:?}");
+
+        flint3_sys::arb_clear(&mut tmp_pi[0]);
+    }
 
     let global_start = std::time::Instant::now();
 
@@ -146,10 +231,12 @@ fn main() {
     let start = std::time::Instant::now();
 
     let (mut tmp, mut q, mut r) =
-        binary_split_arb(1, iters, &pool, max_parallel_depth, prec as i64);
+        binary_split(1, iters, &pool, max_parallel_depth, prec as i64);
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+
+    let mut u = iron_pi::util::new_arb();
 
     print!("{}", "Calculating numerator...   ".green());
     std::io::stdout().flush().unwrap();
@@ -212,6 +299,19 @@ fn main() {
         "Calculated pi in".green(),
         format!("{:?}", global_start.elapsed()).cyan()
     );
+
+    print!("{}", "Freeing Memory...          ".green());
+    std::io::stdout().flush().unwrap();
+    let start = std::time::Instant::now();
+
+    unsafe {
+        flint3_sys::arb_clear(&mut q[0]);
+        flint3_sys::arb_clear(&mut r[0]);
+    }
+
+    let end = std::time::Instant::now();
+    println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
+    println!();
 
     print!("{}", "Converting to string...    ".green());
     std::io::stdout().flush().unwrap();

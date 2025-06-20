@@ -70,3 +70,12 @@ pub fn new_poly() -> flint3_sys::fmpz_poly_t {
         poly.assume_init()
     }
 }
+
+pub fn new_hypgeom() -> flint3_sys::hypgeom_t {
+    unsafe {
+        let mut hypgeom =
+            std::mem::MaybeUninit::<flint3_sys::hypgeom_t>::uninit();
+        flint3_sys::hypgeom_init(&mut (*hypgeom.as_mut_ptr())[0]);
+        hypgeom.assume_init()
+    }
+}
