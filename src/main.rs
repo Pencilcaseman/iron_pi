@@ -150,8 +150,6 @@ fn main() {
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
 
-    let mut u = iron_pi::util::new_arb();
-
     print!("{}", "Calculating numerator...   ".green());
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
