@@ -204,26 +204,6 @@ fn main() {
         flint3_sys::flint_set_num_threads(threads as i32);
     }
 
-    unsafe {
-        let start = std::time::Instant::now();
-        let mut tmp_pi = iron_pi::util::new_arb();
-        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
-
-        // arb_const_pi_chudnovsky_eval(&mut tmp_pi, prec as i64);
-
-        println!("Elapsed: {:?}\n", start.elapsed());
-
-        // let string = std::ffi::CString::from_raw(flint3_sys::arb_get_str(
-        //     &tmp_pi[0],
-        //     prec as i64,
-        //     0,
-        // ));
-        //
-        // println!("Pi =~ {string:?}");
-
-        flint3_sys::arb_clear(&mut tmp_pi[0]);
-    }
-
     let global_start = std::time::Instant::now();
 
     print!("{}", "Binary splitting...        ".green());
