@@ -204,25 +204,25 @@ fn main() {
         flint3_sys::flint_set_num_threads(threads as i32);
     }
 
-    unsafe {
-        let start = std::time::Instant::now();
-        let mut tmp_pi = iron_pi::util::new_arb();
-        flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
-
-        // arb_const_pi_chudnovsky_eval(&mut tmp_pi, prec as i64);
-
-        println!("Elapsed: {:?}\n", start.elapsed());
-
-        // let string = std::ffi::CString::from_raw(flint3_sys::arb_get_str(
-        //     &tmp_pi[0],
-        //     prec as i64,
-        //     0,
-        // ));
-        //
-        // println!("Pi =~ {string:?}");
-
-        flint3_sys::arb_clear(&mut tmp_pi[0]);
-    }
+    // unsafe {
+    //     let start = std::time::Instant::now();
+    //     let mut tmp_pi = iron_pi::util::new_arb();
+    //     flint3_sys::arb_const_pi(&mut tmp_pi[0], prec as i64);
+    //
+    //     // arb_const_pi_chudnovsky_eval(&mut tmp_pi, prec as i64);
+    //
+    //     println!("Elapsed: {:?}\n", start.elapsed());
+    //
+    //     // let string = std::ffi::CString::from_raw(flint3_sys::arb_get_str(
+    //     //     &tmp_pi[0],
+    //     //     prec as i64,
+    //     //     0,
+    //     // ));
+    //     //
+    //     // println!("Pi =~ {string:?}");
+    //
+    //     flint3_sys::arb_clear(&mut tmp_pi[0]);
+    // }
 
     let global_start = std::time::Instant::now();
 
@@ -230,13 +230,10 @@ fn main() {
     std::io::stdout().flush().unwrap();
     let start = std::time::Instant::now();
 
-    let (mut tmp, mut q, mut r) =
-        binary_split(1, iters, &pool, max_parallel_depth, prec as i64);
+    let (mut tmp, mut q, mut r) = binary_split(1, iters, threads, prec as i64);
 
     let end = std::time::Instant::now();
     println!("{} {}", "Done in".green(), format!("{:?}", end - start).cyan());
-
-    let mut u = iron_pi::util::new_arb();
 
     print!("{}", "Calculating numerator...   ".green());
     std::io::stdout().flush().unwrap();
@@ -317,14 +314,12 @@ fn main() {
     std::io::stdout().flush().unwrap();
     let str_start = std::time::Instant::now();
 
-    let base_digits = (digits as f64 / (base as f64).log10()).round() as usize;
-
     let pi_bytes = unsafe {
-        let bytes = flint3_sys::arb_get_str(&tmp[0], base_digits as i64 + 1, 2);
+        let bytes = flint3_sys::arb_get_str(&tmp[0], digits as i64 + 2, 2);
         &&std::ffi::CStr::from_ptr(bytes)
             .to_str()
             .expect("Failed to convert to string")
-            .as_bytes()[2..]
+            .as_bytes()[2..digits as usize + 2]
     };
 
     let end = std::time::Instant::now();
