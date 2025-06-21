@@ -217,17 +217,15 @@ fn binary_split_arb(
                             prec,
                         )
                     },
-                )
+                );
             } else {
-                (
-                    binary_split_arb_single(
-                        a, mid, p, q, r, poly_p, poly_q, poly_r, prec,
-                    ),
-                    binary_split_arb_single(
-                        mid, b, &mut p2, &mut q2, &mut r2, poly_p, poly_q,
-                        poly_r, prec,
-                    ),
-                )
+                binary_split_arb_single(
+                    a, mid, p, q, r, poly_p, poly_q, poly_r, prec,
+                );
+                binary_split_arb_single(
+                    mid, b, &mut p2, &mut q2, &mut r2, poly_p, poly_q, poly_r,
+                    prec,
+                );
             };
 
             // R(a, b) = Q(m, b) * R(a, m) + P(a, m) * R(m, b)
@@ -250,6 +248,7 @@ fn binary_split_arb(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn binary_split_arb_thread(
     a: u64,
     b: u64,
@@ -262,7 +261,9 @@ fn binary_split_arb_thread(
     thread_counter: &Arc<Mutex<usize>>,
     depth: usize,
     max_threads: usize,
+    parallel_depth: usize,
     prec: i64,
+    is_thread: bool,
 ) {
     unsafe {
         if b - a < 4 {
@@ -289,40 +290,82 @@ fn binary_split_arb_thread(
             let mut q2 = SharedArb(util::new_arb());
             let mut r2 = SharedArb(util::new_arb());
 
-            let spawn_thread = {
-                let mut tc = thread_counter
-                    .lock()
-                    .expect("Failed to acquire thread lock");
+            if depth <= parallel_depth {
+                let spawn_thread = {
+                    let mut tc = thread_counter
+                        .lock()
+                        .expect("Failed to acquire thread lock");
 
-                *tc += 1;
+                    if *tc < max_threads {
+                        *tc += 1;
+                        true
+                    } else {
+                        false
+                    }
+                };
 
-                *tc < max_threads
-            };
+                if spawn_thread {
+                    thread::scope(|s| {
+                        s.spawn(|| {
+                            binary_split_arb_thread(
+                                a,
+                                mid,
+                                p,
+                                q,
+                                r,
+                                poly_p,
+                                poly_q,
+                                poly_r,
+                                thread_counter,
+                                depth + 1,
+                                max_threads,
+                                parallel_depth,
+                                prec,
+                                true,
+                            );
 
-            if spawn_thread {
-                thread::scope(|s| {
-                    s.spawn(|| {
+                            {
+                                let mut tc = thread_counter
+                                    .lock()
+                                    .expect("Failed to acquire thread lock");
+                                *tc -= 1;
+                            }
+                        });
+
                         binary_split_arb_thread(
-                            a,
                             mid,
-                            p,
-                            q,
-                            r,
+                            b,
+                            &mut p2,
+                            &mut q2,
+                            &mut r2,
                             poly_p,
                             poly_q,
                             poly_r,
                             thread_counter,
                             depth + 1,
                             max_threads,
+                            parallel_depth,
                             prec,
+                            is_thread,
                         );
-
-                        let mut tc = thread_counter
-                            .lock()
-                            .expect("Failed to acquire thread lock");
-
-                        *tc -= 1;
                     });
+                } else {
+                    binary_split_arb_thread(
+                        a,
+                        mid,
+                        p,
+                        q,
+                        r,
+                        poly_p,
+                        poly_q,
+                        poly_r,
+                        thread_counter,
+                        depth + 1,
+                        max_threads,
+                        parallel_depth,
+                        prec,
+                        is_thread,
+                    );
 
                     binary_split_arb_thread(
                         mid,
@@ -336,14 +379,15 @@ fn binary_split_arb_thread(
                         thread_counter,
                         depth + 1,
                         max_threads,
+                        parallel_depth,
                         prec,
+                        is_thread,
                     );
-                });
+                }
             } else {
                 binary_split_arb_single(
                     a, mid, p, q, r, poly_p, poly_q, poly_r, prec,
                 );
-
                 binary_split_arb_single(
                     mid, b, &mut p2, &mut q2, &mut r2, poly_p, poly_q, poly_r,
                     prec,
@@ -373,8 +417,7 @@ fn binary_split_arb_thread(
 pub fn binary_split(
     a: u64,
     b: u64,
-    // thread_pool: &rayon::ThreadPool,
-    // max_par_depth: usize,
+    max_par_depth: usize,
     num_threads: usize,
     prec: i64,
 ) -> (flint3_sys::arb_t, flint3_sys::arb_t, flint3_sys::arb_t) {
@@ -415,7 +458,7 @@ pub fn binary_split(
         //     prec,
         // );
 
-        let thread_counter = Arc::new(Mutex::new(0));
+        let thread_counter = Arc::new(Mutex::new(1));
 
         binary_split_arb_thread(
             a,
@@ -429,7 +472,9 @@ pub fn binary_split(
             &thread_counter,
             0,
             num_threads,
+            max_par_depth,
             prec,
+            false,
         );
 
         flint3_sys::fmpz_poly_clear(&mut poly_p.0[0]);
