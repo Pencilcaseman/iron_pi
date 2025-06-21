@@ -75,6 +75,7 @@ fn binary_split_fmpz(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn binary_split_arb_single(
     a: u64,
     b: u64,
