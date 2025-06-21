@@ -1,8 +1,3 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread,
-};
-
 use crate::util;
 
 pub struct SharedArb(flint3_sys::arb_t);
@@ -250,132 +245,11 @@ fn binary_split_arb(
     }
 }
 
-fn binary_split_arb_thread(
-    a: u64,
-    b: u64,
-    p: &mut SharedArb,
-    q: &mut SharedArb,
-    r: &mut SharedArb,
-    poly_p: &SharedPoly,
-    poly_q: &SharedPoly,
-    poly_r: &SharedPoly,
-    thread_counter: &Arc<Mutex<usize>>,
-    depth: usize,
-    max_threads: usize,
-    prec: i64,
-) {
-    unsafe {
-        if b - a < 4 {
-            let mut p_tmp = util::new_fmpz();
-            let mut q_tmp = util::new_fmpz();
-            let mut r_tmp = util::new_fmpz();
-
-            binary_split_fmpz(
-                a, b, &mut p_tmp, &mut q_tmp, &mut r_tmp, poly_p, poly_q,
-                poly_r,
-            );
-
-            flint3_sys::arb_set_fmpz(&mut p.0[0], &p_tmp[0]);
-            flint3_sys::arb_set_fmpz(&mut q.0[0], &q_tmp[0]);
-            flint3_sys::arb_set_fmpz(&mut r.0[0], &r_tmp[0]);
-
-            flint3_sys::fmpz_clear(&mut p_tmp[0]);
-            flint3_sys::fmpz_clear(&mut q_tmp[0]);
-            flint3_sys::fmpz_clear(&mut r_tmp[0]);
-        } else {
-            let mid = (a + b) / 2;
-
-            let mut p2 = SharedArb(util::new_arb());
-            let mut q2 = SharedArb(util::new_arb());
-            let mut r2 = SharedArb(util::new_arb());
-
-            let spawn_thread = {
-                let mut tc = thread_counter
-                    .lock()
-                    .expect("Failed to acquire thread lock");
-
-                *tc += 1;
-
-                *tc < max_threads
-            };
-
-            if spawn_thread {
-                thread::scope(|s| {
-                    s.spawn(|| {
-                        binary_split_arb_thread(
-                            a,
-                            mid,
-                            p,
-                            q,
-                            r,
-                            poly_p,
-                            poly_q,
-                            poly_r,
-                            thread_counter,
-                            depth + 1,
-                            max_threads,
-                            prec,
-                        );
-
-                        let mut tc = thread_counter
-                            .lock()
-                            .expect("Failed to acquire thread lock");
-
-                        *tc -= 1;
-                    });
-
-                    binary_split_arb_thread(
-                        mid,
-                        b,
-                        &mut p2,
-                        &mut q2,
-                        &mut r2,
-                        poly_p,
-                        poly_q,
-                        poly_r,
-                        thread_counter,
-                        depth + 1,
-                        max_threads,
-                        prec,
-                    );
-                });
-            } else {
-                binary_split_arb_single(
-                    a, mid, p, q, r, poly_p, poly_q, poly_r, prec,
-                );
-
-                binary_split_arb_single(
-                    mid, b, &mut p2, &mut q2, &mut r2, poly_p, poly_q, poly_r,
-                    prec,
-                );
-            }
-
-            // R(a, b) = Q(m, b) * R(a, m) + P(a, m) * R(m, b)
-            flint3_sys::arb_mul(&mut r.0[0], &r.0[0], &q2.0[0], prec);
-            flint3_sys::arb_addmul(&mut r.0[0], &p.0[0], &r2.0[0], prec);
-
-            // Q(a, b) = Q(a, m) * Q(m, b)
-            flint3_sys::arb_mul(&mut q.0[0], &q.0[0], &q2.0[0], prec);
-
-            if depth > 0 {
-                // P(a, b) = P(a, m) * P(m, b)
-                flint3_sys::arb_mul(&mut p.0[0], &p.0[0], &p2.0[0], prec);
-            }
-
-            // Cleanup
-            flint3_sys::arb_clear(&mut p2.0[0]);
-            flint3_sys::arb_clear(&mut q2.0[0]);
-            flint3_sys::arb_clear(&mut r2.0[0]);
-        }
-    }
-}
-
 pub fn binary_split(
     a: u64,
     b: u64,
-    // thread_pool: &rayon::ThreadPool,
-    // max_par_depth: usize,
-    num_threads: usize,
+    thread_pool: &rayon::ThreadPool,
+    max_par_depth: usize,
     prec: i64,
 ) -> (flint3_sys::arb_t, flint3_sys::arb_t, flint3_sys::arb_t) {
     unsafe {
@@ -400,24 +274,7 @@ pub fn binary_split(
         let mut q = SharedArb(util::new_arb());
         let mut r = SharedArb(util::new_arb());
 
-        // binary_split_arb(
-        //     a,
-        //     b,
-        //     &mut p,
-        //     &mut q,
-        //     &mut r,
-        //     &poly_p,
-        //     &poly_q,
-        //     &poly_r,
-        //     thread_pool,
-        //     0,
-        //     max_par_depth,
-        //     prec,
-        // );
-
-        let thread_counter = Arc::new(Mutex::new(0));
-
-        binary_split_arb_thread(
+        binary_split_arb(
             a,
             b,
             &mut p,
@@ -426,9 +283,9 @@ pub fn binary_split(
             &poly_p,
             &poly_q,
             &poly_r,
-            &thread_counter,
+            thread_pool,
             0,
-            num_threads,
+            max_par_depth,
             prec,
         );
 
