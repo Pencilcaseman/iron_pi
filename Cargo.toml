@@ -5,6 +5,8 @@ edition = "2021"
 
 [features]
 custom-cflags = ["flint3-sys/custom-cflags"]
+force-bindgen = ["flint3-sys/force-bindgen"]
+gmp-mpfr-sys = ["flint3-sys/gmp-mpfr-sys"]
 
 [dependencies]
 
@@ -12,7 +14,7 @@ clap = { version = "4.5", features = ["derive"] }
 colored = "3.0"
 criterion = { version = "0.6.0", features = ["real_blackbox", "html_reports"] }
 rayon = "1.10.0"
-flint3-sys = { git = "https://github.com/Pencilcaseman/flint3-sys", branch = "tmp", features = ["gmp-mpfr-sys"] }
+flint3-sys = { git = "https://github.com/Pencilcaseman/flint3-sys", branch = "tmp" }
 
 [profile.release]
 panic = "abort"
