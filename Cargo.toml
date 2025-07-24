@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+default = ["gmp-mpfr-sys"]
 custom-cflags = ["flint3-sys/custom-cflags"]
 force-bindgen = ["flint3-sys/force-bindgen"]
 gmp-mpfr-sys = ["flint3-sys/gmp-mpfr-sys"]
